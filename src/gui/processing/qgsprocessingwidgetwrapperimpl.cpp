@@ -1280,10 +1280,6 @@ QWidget *QgsProcessingDurationWidgetWrapper::createWidget()
       mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalHours ), QgsUnitTypes::TemporalHours );
       mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalDays ), QgsUnitTypes::TemporalDays );
       mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalWeeks ), QgsUnitTypes::TemporalWeeks );
-      mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalMonths ), QgsUnitTypes::TemporalMonths );
-      mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalYears ), QgsUnitTypes::TemporalYears );
-      mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalDecades ), QgsUnitTypes::TemporalDecades );
-      mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalCenturies ), QgsUnitTypes::TemporalCenturies );
 
       QHBoxLayout *layout = new QHBoxLayout();
       layout->addWidget( spin, 1 );
@@ -1306,18 +1302,6 @@ QWidget *QgsProcessingDurationWidgetWrapper::createWidget()
 
   }
   return nullptr;
-}
-
-void QgsProcessingDurationWidgetWrapper::postInitialize( const QList<QgsAbstractProcessingParameterWidgetWrapper *> &wrappers )
-{
-  QgsProcessingNumericWidgetWrapper::postInitialize( wrappers );
-  switch ( type() )
-  {
-    case QgsProcessingGui::Standard:
-    case QgsProcessingGui::Batch:
-    case QgsProcessingGui::Modeler:
-      break;
-  }
 }
 
 void QgsProcessingDurationWidgetWrapper::setUnits( const QgsUnitTypes::TemporalUnit units )
