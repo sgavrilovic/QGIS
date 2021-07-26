@@ -2279,6 +2279,8 @@ QgsProcessingParameterDefinition *QgsProcessingParameters::parameterFromScriptCo
     return QgsProcessingParameterNumber::fromScriptCode( name, description, isOptional, definition );
   else if ( type == QLatin1String( "distance" ) )
     return QgsProcessingParameterDistance::fromScriptCode( name, description, isOptional, definition );
+  else if ( type == QLatin1String( "duration" ) )
+    return QgsProcessingParameterDuration::fromScriptCode( name, description, isOptional, definition );
   else if ( type == QLatin1String( "scale" ) )
     return QgsProcessingParameterScale::fromScriptCode( name, description, isOptional, definition );
   else if ( type == QLatin1String( "range" ) )
