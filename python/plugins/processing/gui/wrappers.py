@@ -58,6 +58,7 @@ from qgis.core import (
     QgsProcessingParameterBand,
     QgsProcessingParameterMatrix,
     QgsProcessingParameterDistance,
+    QgsProcessingParameterDuration,
     QgsProcessingFeatureSourceDefinition,
     QgsProcessingOutputRasterLayer,
     QgsProcessingOutputVectorLayer,
@@ -104,7 +105,7 @@ from qgis.utils import iface
 from processing.core.ProcessingConfig import ProcessingConfig
 from processing.modeler.MultilineTextPanel import MultilineTextPanel
 
-from processing.gui.NumberInputPanel import NumberInputPanel, ModelerNumberInputPanel, DistanceInputPanel
+from processing.gui.NumberInputPanel import NumberInputPanel, ModelerNumberInputPanel, DistanceInputPanel, DurationInputPanel
 from processing.gui.RangePanel import RangePanel
 from processing.gui.PointSelectionPanel import PointSelectionPanel
 from processing.gui.FileSelectionPanel import FileSelectionPanel
@@ -893,6 +894,50 @@ class DistanceWidgetWrapper(WidgetWrapper):
                 if wrapper.parameterDefinition().name() == self.parameterDefinition().parentParameterName():
                     self.widget.setUnitParameterValue(wrapper.parameterValue())
                     wrapper.widgetValueHasChanged.connect(self.parentParameterChanged)
+
+    def dynamicLayerChanged(self, wrapper):
+        self.widget.setDynamicLayer(wrapper.parameterValue())
+
+    def parentParameterChanged(self, wrapper):
+        self.widget.setUnitParameterValue(wrapper.parameterValue())
+
+
+class DurationWidgetWrapper(WidgetWrapper):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        """
+        .. deprecated:: 3.4
+        Do not use, will be removed in QGIS 4.0
+        """
+
+        from warnings import warn
+        warn("DurationWidgetWrapper is deprecated and will be removed in QGIS 4.0", DeprecationWarning)
+
+    def createWidget(self):
+        if self.dialogType in (DIALOG_STANDARD, DIALOG_BATCH):
+            widget = DurationInputPanel(self.parameterDefinition())
+            widget.hasChanged.connect(lambda: self.widgetValueHasChanged.emit(self))
+            return widget
+        else:
+            return ModelerNumberInputPanel(self.parameterDefinition(), self.dialog)
+
+    def setValue(self, value):
+        if value is None or value == NULL:
+            return
+
+        self.widget.setValue(value)
+
+    def value(self):
+        return self.widget.getValue()
+
+    def postInitialize(self, wrappers):
+        if self.dialogType in (DIALOG_STANDARD, DIALOG_BATCH) and self.parameterDefinition().isDynamic():
+            for wrapper in wrappers:
+                if wrapper.parameterDefinition().name() == self.parameterDefinition().dynamicLayerParameterName():
+                    self.widget.setDynamicLayer(wrapper.parameterValue())
+                    wrapper.widgetValueHasChanged.connect(self.parentLayerChanged)
+                    break
 
     def dynamicLayerChanged(self, wrapper):
         self.widget.setDynamicLayer(wrapper.parameterValue())
@@ -1907,6 +1952,9 @@ class WidgetWrapperFactory:
         elif param.type() == 'distance':
             # deprecated, moved to c++
             wrapper = DistanceWidgetWrapper
+        elif param.type() == 'duration':
+            # deprecated, moved to c++
+            wrapper = DurationWidgetWrapper
         elif param.type() == 'raster':
             # deprecated, moved to c++
             wrapper = RasterWidgetWrapper

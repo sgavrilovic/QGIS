@@ -6844,6 +6844,62 @@ bool QgsProcessingParameterDistance::fromVariantMap( const QVariantMap &map )
 
 
 //
+// QgsProcessingParameterDuration
+//
+
+QgsProcessingParameterDuration::QgsProcessingParameterDuration( const QString &name, const QString &description, const QVariant &defaultValue, bool optional, double minValue, double maxValue )
+  : QgsProcessingParameterNumber( name, description, Double, defaultValue, optional, minValue, maxValue )
+{
+}
+
+QgsProcessingParameterDuration *QgsProcessingParameterDuration::clone() const
+{
+  return new QgsProcessingParameterDuration( *this );
+}
+
+QString QgsProcessingParameterDuration::type() const
+{
+  return typeName();
+}
+
+QString QgsProcessingParameterDuration::asPythonString( const QgsProcessing::PythonOutputType outputType ) const
+{
+  switch ( outputType )
+  {
+    case QgsProcessing::PythonQgsProcessingAlgorithmSubclass:
+    {
+      QString code = QStringLiteral( "QgsProcessingParameterDuration('%1', '%2'" ).arg( name(), description() );
+      if ( mFlags & FlagOptional )
+        code += QLatin1String( ", optional=True" );
+
+      if ( minimum() != std::numeric_limits<double>::lowest() + 1 )
+        code += QStringLiteral( ", minValue=%1" ).arg( minimum() );
+      if ( maximum() != std::numeric_limits<double>::max() )
+        code += QStringLiteral( ", maxValue=%1" ).arg( maximum() );
+      QgsProcessingContext c;
+      code += QStringLiteral( ", defaultValue=%1)" ).arg( valueAsPythonString( mDefault, c ) );
+      return code;
+    }
+  }
+  return QString();
+}
+
+QVariantMap QgsProcessingParameterDuration::toVariantMap() const
+{
+  QVariantMap map = QgsProcessingParameterNumber::toVariantMap();
+  map.insert( QStringLiteral( "default_unit" ), static_cast< int >( mDefaultUnit ) );
+  return map;
+}
+
+bool QgsProcessingParameterDuration::fromVariantMap( const QVariantMap &map )
+{
+  QgsProcessingParameterNumber::fromVariantMap( map );
+  mDefaultUnit = static_cast< QgsUnitTypes::TemporalUnit>( map.value( QStringLiteral( "default_unit" ), QgsUnitTypes::TemporalDays ).toInt() );
+  return true;
+}
+
+
+//
 // QgsProcessingParameterScale
 //
 

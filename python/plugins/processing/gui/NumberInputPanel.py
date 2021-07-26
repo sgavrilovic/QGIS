@@ -324,3 +324,50 @@ class DistanceInputPanel(NumberInputPanel):
             self.spnValue.setValue(float(value))
         except:
             return
+
+
+class DurationInputPanel(NumberInputPanel):
+    """
+    Distance input panel for use outside the modeler - this input panel
+    contains a label showing the distance unit.
+    """
+
+    def __init__(self, param):
+        super().__init__(param)
+
+        self.units_combo = QComboBox()
+        for u in (QgsUnitTypes.TemporalMilliseconds,
+                  QgsUnitTypes.TemporalSeconds,
+                  QgsUnitTypes.TemporalMinutes,
+                  QgsUnitTypes.TemporalHours,
+                  QgsUnitTypes.TemporalDays,
+                  QgsUnitTypes.TemporalWeeks,
+                  QgsUnitTypes.TemporalMonths,
+                  QgsUnitTypes.TemporalYears,
+                  QgsUnitTypes.TemporalDecades,
+                  QgsUnitTypes.TemporalCenturies):
+            self.units_combo.addItem(QgsUnitTypes.toString(u), u)
+
+        self.layout().insertWidget(1, self.units_combo)
+        self.setUnits(param.defaultUnit())
+        self.units_combo.show()
+
+        self.base_units = param.defaultUnit()
+
+    def setUnits(self, units):
+        self.units_combo.setCurrentIndex(self.units_combo.findData(units))
+        self.base_units = units
+
+    def getValue(self):
+        val = super().getValue()
+        if isinstance(val, float) and self.units_combo.isVisible():
+            display_unit = self.units_combo.currentData()
+            return val * QgsUnitTypes.fromUnitToUnitFactor(display_unit, self.base_units)
+
+        return val
+
+    def setValue(self, value):
+        try:
+            self.spnValue.setValue(float(value))
+        except:
+            return
