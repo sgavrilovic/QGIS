@@ -33,6 +33,7 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrl>
+#include <QToolButton>
 #include "qgis_app.h"
 
 class QCloseEvent;

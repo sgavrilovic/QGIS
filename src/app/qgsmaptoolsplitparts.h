@@ -17,6 +17,7 @@
 #define QGSMAPTOOLSPLITPARTS_H
 
 #include "qgsmaptoolcapture.h"
+#include "qgis_app.h"
 
 //! A map tool that draws a line and splits the parts cut by the line
 class APP_EXPORT QgsMapToolSplitParts: public QgsMapToolCapture
