@@ -39,6 +39,7 @@ email                : jpalmer at linz dot govt dot nz
 #include <QApplication>
 #include <QAction>
 #include <QtConcurrent>
+#include <QMenu>
 
 QgsVectorLayer *QgsMapToolSelectUtils::getCurrentVectorLayer( QgsMapCanvas *canvas )
 {

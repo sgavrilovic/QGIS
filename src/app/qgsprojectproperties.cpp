@@ -2005,7 +2005,7 @@ void QgsProjectProperties::pbnLaunchOWSChecker_clicked()
   {
     for ( const QgsProjectServerValidator::ValidationResult &result : std::as_const( validationResults ) )
     {
-      errors += QLatin1String( "<b>" ) % QgsProjectServerValidator::displayValidationError( result.error ) % QLatin1String( " :</b> " );
+      errors += QLatin1String( "<b>" ) + QgsProjectServerValidator::displayValidationError( result.error ) + QLatin1String( " :</b> " );
       errors += result.identifier.toString();
     }
   }

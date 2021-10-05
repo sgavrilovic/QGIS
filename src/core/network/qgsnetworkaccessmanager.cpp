@@ -33,7 +33,7 @@
 
 #include <QUrl>
 #include <QTimer>
-#include <QBuffer>
+#include <QtCore/qbuffer.h>
 #include <QNetworkReply>
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
 #include <QMutex>

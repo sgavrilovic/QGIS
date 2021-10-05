@@ -43,6 +43,7 @@
 #include <QSplitter>
 #include <QRegularExpression>
 #include <QUrl>
+#include <QMenu>
 
 #define FEED_URL "https://feed.qgis.org/"
 

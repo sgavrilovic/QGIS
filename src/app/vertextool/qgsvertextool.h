@@ -25,6 +25,7 @@
 #include "qgsgeometry.h"
 #include "qgspointlocator.h"
 #include "qobjectuniqueptr.h"
+#include "qgsrenderer.h"
 
 class QRubberBand;
 

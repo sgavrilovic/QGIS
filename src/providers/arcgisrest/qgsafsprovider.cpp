@@ -468,8 +468,9 @@ QgsAfsProvider *QgsAfsProviderMetadata::createProvider( const QString &uri, cons
   return new QgsAfsProvider( uri, options, flags );
 }
 
-
+#ifndef HAVE_STATIC_PROVIDERS
 QGISEXTERN QgsProviderMetadata *providerMetadataFactory()
 {
   return new QgsAfsProviderMetadata();
 }
+#endif

@@ -23,7 +23,7 @@
 #include <QAbstractButton>
 #include <QSignalMapper>
 #include <QTimer>
-#include <QUiLoader>
+//#include <QUiLoader>
 
 #include "qgisappinterface.h"
 #include "qgisappstylesheet.h"
@@ -139,6 +139,7 @@ QgsVectorLayer *QgisAppInterface::addVectorLayer( const QString &vectorLayerPath
     const QFileInfo fi( vectorLayerPath );
     nonNullBaseBame = fi.completeBaseName();
   }
+
   return qgis->addVectorLayer( vectorLayerPath, nonNullBaseBame, providerKey );
 }
 
@@ -810,13 +811,15 @@ void QgisAppInterface::cacheloadForm( const QString &uifile )
 
   if ( file.open( QFile::ReadOnly ) )
   {
-    QUiLoader loader;
+//    QUiLoader loader;
 
-    const QFileInfo fi( uifile );
-    loader.setWorkingDirectory( fi.dir() );
-    QWidget *myWidget = loader.load( &file );
+//    const QFileInfo fi( uifile );
+//    loader.setWorkingDirectory( fi.dir() );
+//    QWidget *myWidget = loader.load( &file );
     file.close();
-    delete myWidget;
+
+    qDebug()<<"Fix me";
+//    delete myWidget;
   }
 }
 

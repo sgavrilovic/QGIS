@@ -28,6 +28,8 @@
 #include <QWidgetAction>
 #include <QDir>
 #include <QDockWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QDomDocument>
 #include <QDomElement>
 #include <QDomNode>

@@ -37,6 +37,7 @@
 
 #include <QSettings>
 #include <QStatusBar>
+#include <QMenu>
 
 QgsMapToolFeatureAction::QgsMapToolFeatureAction( QgsMapCanvas *canvas )
   : QgsMapTool( canvas )

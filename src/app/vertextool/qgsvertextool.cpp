@@ -315,13 +315,13 @@ QgsVertexTool::QgsVertexTool( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWid
 
 QgsVertexTool::~QgsVertexTool()
 {
-  delete mEdgeCenterMarker;
-  delete mFeatureBand;
-  delete mFeatureBandMarkers;
-  delete mVertexBand;
-  delete mEdgeBand;
-  delete mEndpointMarker;
-  delete mVertexEditor;
+//  delete mEdgeCenterMarker;
+//  delete mFeatureBand;
+//  delete mFeatureBandMarkers;
+//  delete mVertexBand;
+//  delete mEdgeBand;
+//  delete mEndpointMarker;
+//  delete mVertexEditor;
 }
 
 void QgsVertexTool::activate()

@@ -36,6 +36,7 @@
 #include "qgsguiutils.h"
 #include "qgsmeshtriangulation.h"
 
+#include <QMenu>
 
 QgsZValueWidget::QgsZValueWidget( const QString &label, QWidget *parent ): QWidget( parent )
 {

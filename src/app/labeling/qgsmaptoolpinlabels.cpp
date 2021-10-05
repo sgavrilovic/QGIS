@@ -37,7 +37,6 @@ QgsMapToolPinLabels::QgsMapToolPinLabels( QgsMapCanvas *canvas, QgsAdvancedDigit
 {
   mToolName = tr( "Pin labels" );
 
-  connect( QgisApp::instance()->actionToggleEditing(), &QAction::triggered, this, &QgsMapToolPinLabels::updatePinnedLabels );
   connect( canvas, &QgsMapCanvas::renderComplete, this, &QgsMapToolPinLabels::highlightPinnedLabels );
 }
 
@@ -326,12 +325,6 @@ void QgsMapToolPinLabels::pinUnpinLabels( const QgsRectangle &ext, QMouseEvent *
   if ( labelChanged )
   {
     mCurrentLabel.layer->triggerRepaint();
-
-    if ( !mShowPinned )
-    {
-      // toggle it on (pin-unpin tool doesn't work well without it)
-      QgisApp::instance()->actionShowPinnedLabels()->setChecked( true );
-    }
   }
 }
 

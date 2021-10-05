@@ -30,6 +30,7 @@
 #include "qgshelp.h"
 
 #include <QMessageBox>
+#include <QMenu>
 
 QgsMapThemes *QgsMapThemes::sInstance;
 
