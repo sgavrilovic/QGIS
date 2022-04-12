@@ -462,6 +462,29 @@ class CORE_EXPORT QgsProcessingAlgorithm
     virtual QString asPythonCommand( const QVariantMap &parameters, QgsProcessingContext &context ) const;
 
     /**
+     * Returns a command string which will execute the algorithm using the specified \a parameters
+     * via the command line qgis_process tool.
+     *
+     * Note that some combinations of parameter types and values cannot be represented as a qgis_process string.
+     *
+     * \param parameters algorithm parameters
+     * \param context processing context
+     * \param ok will be set to TRUE if the command was successfully generated
+     *
+     * \returns equivalent qgis_process command
+     *
+     * \since QGIS 3.24
+     */
+    virtual QString asQgisProcessCommand( const QVariantMap &parameters, QgsProcessingContext &context, bool &ok SIP_OUT ) const;
+
+    /**
+     * Returns a JSON serializable variant map containing the specified \a parameters and \a context settings.
+     *
+     * \since QGIS 3.24
+     */
+    virtual QVariantMap asMap( const QVariantMap &parameters, QgsProcessingContext &context ) const;
+
+    /**
      * Associates this algorithm with its provider. No transfer of ownership is involved.
      */
     void setProvider( QgsProcessingProvider *provider );
@@ -987,6 +1010,21 @@ class CORE_EXPORT QgsProcessingAlgorithm
      * \since QGIS 3.22
      */
     QgsPointCloudLayer *parameterAsPointCloudLayer( const QVariantMap &parameters, const QString &name, QgsProcessingContext &context ) const;
+
+    /**
+     * Evaluates the parameter with matching \a name to an annotation layer.
+     *
+     * Annotation layers will be taken from \a context's active project. Callers do not
+     * need to handle deletion of the returned layer.
+     *
+     * \warning Working with annotation layers is generally not thread safe (unless the layers are from
+     * a QgsProject loaded directly in a background thread). Ensure your algorithm returns the
+     * QgsProcessingAlgorithm::FlagNoThreading flag or only accesses annotation layers from a prepareAlgorithm()
+     * or postProcessAlgorithm() step.
+     *
+     * \since QGIS 3.22
+     */
+    QgsAnnotationLayer *parameterAsAnnotationLayer( const QVariantMap &parameters, const QString &name, QgsProcessingContext &context ) const;
 
     /**
      * Returns a user-friendly string to use as an error when a source parameter could

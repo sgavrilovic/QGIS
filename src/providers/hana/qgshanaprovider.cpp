@@ -41,12 +41,12 @@
 #include "odbc/ResultSet.h"
 #include "odbc/ResultSetMetaDataUnicode.h"
 
-using namespace odbc;
+using namespace NS_ODBC;
 using namespace std;
 
 namespace
 {
-  bool isQuery( const QString &source )
+  bool sourceIsQuery( const QString &source )
   {
     QString trimmed = source.trimmed();
     return trimmed.startsWith( '(' ) && trimmed.endsWith( ')' );
@@ -54,7 +54,7 @@ namespace
 
   QString buildQuery( const QString &source, const QString &columns, const QString &where, const QString &orderBy, int limit )
   {
-    if ( isQuery( source ) && columns == QLatin1String( "*" ) && where.isEmpty() && limit <= 0 )
+    if ( sourceIsQuery( source ) && columns == QLatin1String( "*" ) && where.isEmpty() && limit <= 0 )
       return source;
 
     QString sql = QStringLiteral( "SELECT %1 FROM %2" ).arg( columns, source );
@@ -246,7 +246,7 @@ namespace
         else
         {
           QTime t = value.toTime();
-          stmt->setTime( paramIndex, makeNullable<odbc::time>( t.hour(), t.minute(), t.second() ) );
+          stmt->setTime( paramIndex, makeNullable<NS_ODBC::time>( t.hour(), t.minute(), t.second() ) );
         }
         break;
       case SQLDataTypes::Timestamp:
@@ -258,7 +258,7 @@ namespace
           QDateTime dt = value.toDateTime();
           QDate d = dt.date();
           QTime t = dt.time();
-          stmt->setTimestamp( paramIndex, makeNullable<odbc::timestamp>( d.year(),
+          stmt->setTimestamp( paramIndex, makeNullable<NS_ODBC::timestamp>( d.year(),
                               d.month(), d.day(), t.hour(), t.minute(), t.second(), t.msec() ) );
         }
         break;
@@ -385,7 +385,7 @@ QgsHanaProvider::QgsHanaProvider(
     return;
   }
 
-  if ( isQuery( mTableName ) )
+  if ( sourceIsQuery( mTableName ) )
   {
     mIsQuery = true;
     mQuerySource = mTableName;
@@ -776,7 +776,7 @@ bool QgsHanaProvider::addFeatures( QgsFeatureList &flist, Flags flags )
           ResultSetRef rsIdentity = stmtIdentityValue->executeQuery();
           if ( rsIdentity->next() )
           {
-            odbc::Long id = rsIdentity->getLong( 1 );
+            NS_ODBC::Long id = rsIdentity->getLong( 1 );
             if ( !id.isNull() )
               feature.setId( static_cast<QgsFeatureId>( *id ) );
           }
@@ -1433,7 +1433,7 @@ void QgsHanaProvider::readGeometryType( QgsHanaConnection &conn )
   if ( mIsQuery )
   {
     QString query = buildQuery( QStringLiteral( "*" ) );
-    if ( !isQuery( query ) )
+    if ( !sourceIsQuery( query ) )
       query = "(" + query + ")";
     mDetectedGeometryType = conn.getColumnGeometryType( query, mGeometryColumn );
   }
@@ -1553,6 +1553,17 @@ void QgsHanaProvider::updateFeatureIdMap( QgsFeatureId fid, const QgsAttributeMa
   }
 
   mPrimaryKeyCntx->insertFid( fid, values );
+}
+
+
+Qgis::VectorLayerTypeFlags QgsHanaProvider::vectorLayerTypeFlags() const
+{
+  Qgis::VectorLayerTypeFlags flags;
+  if ( mValid && mIsQuery )
+  {
+    flags.setFlag( Qgis::VectorLayerTypeFlag::SqlQuery );
+  }
+  return flags;
 }
 
 QgsCoordinateReferenceSystem QgsHanaProvider::crs() const

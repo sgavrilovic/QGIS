@@ -30,12 +30,14 @@ email                : nyall dot dawson at gmail dot com
 #include "qgszipitem.h"
 #include "qgsproviderutils.h"
 #include "qgsgdalutils.h"
+#include "qgsproviderregistry.h"
 
+#include <gdal.h>
 #include <QFileInfo>
 #include <QFile>
 #include <QDir>
-#include <QMessageBox>
 #include <QRegularExpression>
+#include <QDirIterator>
 
 ///@cond PRIVATE
 
@@ -72,8 +74,17 @@ QVariantMap QgsOgrProviderMetadata::decodeUri( const QString &uri ) const
   QString geometryType;
   QStringList openOptions;
   QString databaseName;
+  QString authcfg;
 
   int layerId = -1;
+
+  const QRegularExpression authcfgRegex( " authcfg='([^']+)'" );
+  QRegularExpressionMatch match;
+  if ( path.contains( authcfgRegex, &match ) )
+  {
+    path = path.remove( match.capturedStart( 0 ), match.capturedLength( 0 ) );
+    authcfg = match.captured( 1 );
+  }
 
   QString vsiPrefix = qgsVsiPrefix( path );
   QString vsiSuffix;
@@ -105,7 +116,7 @@ QVariantMap QgsOgrProviderMetadata::decodeUri( const QString &uri ) const
 
     // we first try to split off the geometry type component, if that's present. That's a known quantity which
     // will never be more than a-z characters
-    QRegularExpressionMatch match = geometryTypeRegex.match( path );
+    match = geometryTypeRegex.match( path );
     if ( match.hasMatch() )
     {
       geometryType = match.captured( 1 );
@@ -193,6 +204,8 @@ QVariantMap QgsOgrProviderMetadata::decodeUri( const QString &uri ) const
     uriComponents.insert( QStringLiteral( "vsiPrefix" ), vsiPrefix );
   if ( !vsiSuffix.isEmpty() )
     uriComponents.insert( QStringLiteral( "vsiSuffix" ), vsiSuffix );
+  if ( !authcfg.isEmpty() )
+    uriComponents.insert( QStringLiteral( "authcfg" ), authcfg );
   return uriComponents;
 }
 
@@ -205,7 +218,9 @@ QString QgsOgrProviderMetadata::encodeUri( const QVariantMap &parts ) const
   const QString layerId = parts.value( QStringLiteral( "layerId" ) ).toString();
   const QString subset = parts.value( QStringLiteral( "subset" ) ).toString();
   const QString geometryType = parts.value( QStringLiteral( "geometryType" ) ).toString();
+  const QString authcfg = parts.value( QStringLiteral( "authcfg" ) ).toString();
   const QStringList openOptions = parts.value( QStringLiteral( "openOptions" ) ).toStringList();
+
   QString uri = vsiPrefix + path + vsiSuffix
                 + ( !layerName.isEmpty() ? QStringLiteral( "|layername=%1" ).arg( layerName ) : !layerId.isEmpty() ? QStringLiteral( "|layerid=%1" ).arg( layerId ) : QString() )
                 + ( !geometryType.isEmpty() ? QStringLiteral( "|geometrytype=%1" ).arg( geometryType ) : QString() );
@@ -216,6 +231,8 @@ QString QgsOgrProviderMetadata::encodeUri( const QVariantMap &parts ) const
   }
   if ( !subset.isEmpty() )
     uri += QStringLiteral( "|subset=%1" ).arg( subset );
+  if ( !authcfg.isEmpty() )
+    uri += QStringLiteral( " authcfg='%1'" ).arg( authcfg );
   return uri;
 }
 
@@ -251,6 +268,49 @@ static QgsOgrLayerUniquePtr LoadDataSourceAndLayer( const QString &uri, QString 
     return QgsOgrProviderUtils::getLayer( filePath, true, QStringList(), layerIndex, errCause, true );
   }
 }
+
+bool QgsOgrProviderMetadata::styleExists( const QString &uri, const QString &styleId, QString &errorCause )
+{
+  errorCause.clear();
+
+  QgsOgrLayerUniquePtr userLayer = LoadDataSourceAndLayer( uri, errorCause );
+  if ( !userLayer )
+    return false;
+
+#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
+  QMutex *mutex = nullptr;
+#else
+  QRecursiveMutex *mutex = nullptr;
+#endif
+  OGRLayerH hUserLayer = userLayer->getHandleAndMutex( mutex );
+  GDALDatasetH hDS = userLayer->getDatasetHandleAndMutex( mutex );
+  QMutexLocker locker( mutex );
+
+  // check if layer_styles table exists
+  OGRLayerH hLayer = GDALDatasetGetLayerByName( hDS, "layer_styles" );
+  if ( !hLayer )
+    return false;
+
+  const QString realStyleId = styleId.isEmpty() ? QString( OGR_L_GetName( hUserLayer ) ) : styleId;
+
+  const QString checkQuery = QStringLiteral( "f_table_schema=''"
+                             " AND f_table_name=%1"
+                             " AND f_geometry_column=%2"
+                             " AND styleName=%3" )
+                             .arg( QgsOgrProviderUtils::quotedValue( QString( OGR_L_GetName( hUserLayer ) ) ),
+                                   QgsOgrProviderUtils::quotedValue( QString( OGR_L_GetGeometryColumn( hUserLayer ) ) ),
+                                   QgsOgrProviderUtils::quotedValue( realStyleId ) );
+  OGR_L_SetAttributeFilter( hLayer, checkQuery.toUtf8().constData() );
+  OGR_L_ResetReading( hLayer );
+  gdal::ogr_feature_unique_ptr hFeature( OGR_L_GetNextFeature( hLayer ) );
+  OGR_L_ResetReading( hLayer );
+
+  if ( hFeature )
+    return true;
+
+  return false;
+}
+
 bool QgsOgrProviderMetadata::saveStyle(
   const QString &uri, const QString &qmlStyle, const QString &sldStyle,
   const QString &styleName, const QString &styleDescription,
@@ -390,23 +450,11 @@ bool QgsOgrProviderMetadata::saveStyle(
   OGR_L_SetAttributeFilter( hLayer, checkQuery.toUtf8().constData() );
   OGR_L_ResetReading( hLayer );
   gdal::ogr_feature_unique_ptr hFeature( OGR_L_GetNextFeature( hLayer ) );
+  OGR_L_ResetReading( hLayer );
   bool bNew = true;
 
   if ( hFeature )
   {
-    QgsSettings settings;
-    // Only used in tests. Do not define it for interactive implication
-    QVariant overwriteStyle = settings.value( QStringLiteral( "qgis/overwriteStyle" ) );
-    if ( ( !overwriteStyle.isNull() && !overwriteStyle.toBool() ) ||
-         ( overwriteStyle.isNull() &&
-           QMessageBox::question( nullptr, QObject::tr( "Save style in database" ),
-                                  QObject::tr( "A style named \"%1\" already exists in the database for this layer. Do you want to overwrite it?" )
-                                  .arg( realStyleName ),
-                                  QMessageBox::Yes | QMessageBox::No ) == QMessageBox::No ) )
-    {
-      errCause = QObject::tr( "Operation aborted" );
-      return false;
-    }
     bNew = false;
   }
   else
@@ -466,7 +514,7 @@ bool QgsOgrProviderMetadata::saveStyle(
   return true;
 }
 
-bool QgsOgrProviderMetadata::deleteStyleById( const QString &uri, QString styleId, QString &errCause )
+bool QgsOgrProviderMetadata::deleteStyleById( const QString &uri, const QString &styleId, QString &errCause )
 {
   QgsDataSourceUri dsUri( uri );
   bool deleted;
@@ -609,6 +657,7 @@ QString QgsOgrProviderMetadata::loadStyle( const QString &uri, QString &errCause
 
     }
   }
+  OGR_L_ResetReading( hLayer );
 
   return styleQML;
 }
@@ -745,7 +794,7 @@ int QgsOgrProviderMetadata::listStyles(
   return numberOfRelatedStyles;
 }
 
-QString QgsOgrProviderMetadata::getStyleById( const QString &uri, QString styleId, QString &errCause )
+QString QgsOgrProviderMetadata::getStyleById( const QString &uri, const QString &styleId, QString &errCause )
 {
   QgsOgrLayerUniquePtr layerStyles;
   QgsOgrLayerUniquePtr userLayer;
@@ -782,6 +831,7 @@ QString QgsOgrProviderMetadata::getStyleById( const QString &uri, QString styleI
   QString styleQML( QString::fromUtf8(
                       OGR_F_GetFieldAsString( hFeature.get(),
                           OGR_FD_GetFieldIndex( hLayerDefn, "styleQML" ) ) ) );
+  OGR_L_ResetReading( hLayer );
 
   return styleQML;
 }
@@ -1035,13 +1085,12 @@ bool QgsOgrProviderMetadata::uriIsBlocklisted( const QString &uri ) const
 
 QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const QString &u, Qgis::SublayerQueryFlags flags, QgsFeedback *feedback ) const
 {
-  QString uri = u;
+  QString uri = QgsOgrProviderUtils::expandAuthConfig( u );
   QStringList options { QStringLiteral( "@LIST_ALL_TABLES=YES" ) };
-
   QVariantMap uriParts = decodeUri( uri );
 
   // Try to open using VSIFileHandler
-  QString vsiPrefix = QgsZipItem::vsiPrefix( uri );
+  QString vsiPrefix = QgsZipItem::vsiPrefix( uriParts.value( QStringLiteral( "path" ) ).toString() );
   if ( !vsiPrefix.isEmpty() && uriParts.value( QStringLiteral( "vsiPrefix" ) ).toString().isEmpty() )
   {
     if ( !uri.startsWith( vsiPrefix ) )
@@ -1098,18 +1147,28 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
     }
   }
 
+  const QStringList dirExtensions = QgsOgrProviderUtils::directoryExtensions();
+
   const QString path = uriParts.value( QStringLiteral( "path" ) ).toString();
   const QFileInfo pathInfo( path );
-  if ( ( flags & Qgis::SublayerQueryFlag::FastScan ) && ( pathInfo.isFile() || pathInfo.isDir() ) )
+  const QString suffix = uriParts.value( QStringLiteral( "vsiSuffix" ) ).toString().isEmpty()
+                         ? pathInfo.suffix().toLower()
+                         : QFileInfo( uriParts.value( QStringLiteral( "vsiSuffix" ) ).toString() ).suffix().toLower();
+  bool isOgrSupportedDirectory = pathInfo.isDir() && dirExtensions.contains( suffix );
+
+  bool forceDeepScanDir = false;
+  if ( pathInfo.isDir() && !isOgrSupportedDirectory )
+  {
+    QDirIterator it( path, { QStringLiteral( "*.adf" ), QStringLiteral( "*.ADF" ) }, QDir::Files | QDir::NoSymLinks | QDir::NoDotAndDotDot );
+    forceDeepScanDir = it.hasNext();
+  }
+
+  if ( ( flags & Qgis::SublayerQueryFlag::FastScan ) && ( pathInfo.isFile() || pathInfo.isDir() ) && !forceDeepScanDir )
   {
     // fast scan, so we don't actually try to open the dataset and instead just check the extension alone
     const QStringList fileExtensions = QgsOgrProviderUtils::fileExtensions();
-    const QStringList dirExtensions = QgsOgrProviderUtils::directoryExtensions();
-
-    const QString suffix = pathInfo.suffix().toLower();
 
     // allow only normal files or supported directories to continue
-    const bool isOgrSupportedDirectory = pathInfo.isDir() && dirExtensions.contains( suffix );
     if ( !isOgrSupportedDirectory && !pathInfo.isFile() )
       return {};
 
@@ -1130,6 +1189,17 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
         return {};
     }
 
+    // metadata.xml file next to tdenv?.adf files is a subcomponent of an ESRI tin layer alone, shouldn't be exposed
+    if ( pathInfo.fileName().compare( QLatin1String( "metadata.xml" ), Qt::CaseInsensitive ) == 0 )
+    {
+      const QDir dir  = pathInfo.dir();
+      if ( dir.exists( QStringLiteral( "tdenv9.adf" ) )
+           || dir.exists( QStringLiteral( "tdenv.adf" ) )
+           || dir.exists( QStringLiteral( "TDENV9.ADF" ) )
+           || dir.exists( QStringLiteral( "TDENV.ADF" ) ) )
+        return {};
+    }
+
     // if file is trivial to read then there's no need to rely on
     // the extension only scan here -- avoiding it always gives us the correct data type
     // and sublayer visibility
@@ -1145,7 +1215,9 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
       details.setType( QgsMapLayerType::VectorLayer );
       details.setProviderKey( QStringLiteral( "ogr" ) );
       details.setUri( uri );
-      details.setName( QgsProviderUtils::suggestLayerNameFromFilePath( path ) );
+      details.setName( uriParts.value( QStringLiteral( "vsiSuffix" ) ).toString().isEmpty()
+                       ? QgsProviderUtils::suggestLayerNameFromFilePath( path )
+                       : QgsProviderUtils::suggestLayerNameFromFilePath( uriParts.value( QStringLiteral( "vsiSuffix" ) ).toString() ) );
       if ( QgsGdalUtils::multiLayerFileExtensions().contains( suffix ) )
       {
         // uri may contain sublayers, but query flags prevent us from examining them
@@ -1190,6 +1262,14 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
   if ( !firstLayer )
     return {};
 
+#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
+  QMutex *mutex = nullptr;
+#else
+  QRecursiveMutex *mutex = nullptr;
+#endif
+  GDALDatasetH hDS = firstLayer->getDatasetHandleAndMutex( mutex );
+  QMutexLocker locker( mutex );
+
   const QString driverName = firstLayer->driverName();
 
   const int layerCount = firstLayer->GetLayerCount();
@@ -1197,7 +1277,7 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
   QList<QgsProviderSublayerDetails> res;
   if ( layerCount == 1 )
   {
-    res << QgsOgrProviderUtils::querySubLayerList( 0, firstLayer.get(), driverName, flags, false, uri, true, feedback );
+    res << QgsOgrProviderUtils::querySubLayerList( 0, firstLayer.get(), hDS, driverName, flags, uri, true, feedback );
   }
   else
   {
@@ -1209,6 +1289,9 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
     {
       if ( feedback && feedback->isCanceled() )
         break;
+
+      if ( originalUriLayerIdWasSpecified && i != uriLayerId )
+        continue;
 
       QString errCause;
       QgsOgrLayerUniquePtr layer;
@@ -1227,7 +1310,15 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
           continue;
       }
 
-      res << QgsOgrProviderUtils::querySubLayerList( i, i == 0 ? firstLayer.get() : layer.get(), driverName, flags, false, uri, false, feedback );
+      QgsOgrLayer *sublayer = i == 0 ? firstLayer.get() : layer.get();
+      if ( !sublayer )
+        continue;
+
+      const QString layerName = QString::fromUtf8( sublayer->name() );
+      if ( !originalUriLayerName.isEmpty() && layerName != originalUriLayerName )
+        continue;
+
+      res << QgsOgrProviderUtils::querySubLayerList( i, sublayer, hDS, driverName, flags, uri, false, feedback );
     }
   }
 
@@ -1293,6 +1384,49 @@ QList<QgsProviderSublayerDetails> QgsOgrProviderMetadata::querySublayers( const 
       return sublayer.wkbType() != originalGeometryTypeFilter;
     } ), res.end() );
   }
+
+#if GDAL_VERSION_NUM >= GDAL_COMPUTE_VERSION(3,4,0)
+  // retrieve layer paths
+  if ( GDALGroupH rootGroup = GDALDatasetGetRootGroup( hDS ) )
+  {
+    std::function< void( GDALGroupH, const QStringList & ) > recurseGroup;
+    recurseGroup = [&recurseGroup, &res]( GDALGroupH group, const QStringList & currentPath )
+    {
+      if ( char **vectorLayerNames = GDALGroupGetVectorLayerNames( group, nullptr ) )
+      {
+        const QStringList layers = QgsOgrUtils::cStringListToQStringList( vectorLayerNames );
+        CSLDestroy( vectorLayerNames );
+        // attach path to matching layers
+        for ( const QString &layer : layers )
+        {
+          for ( int i = 0; i < res.size(); ++i )
+          {
+            if ( res.at( i ).name() == layer )
+            {
+              res[i].setPath( currentPath );
+            }
+          }
+        }
+      }
+
+      if ( char **subgroupNames = GDALGroupGetGroupNames( group, nullptr ) )
+      {
+        for ( int i = 0; subgroupNames[i]; ++i )
+        {
+          if ( GDALGroupH subgroup = GDALGroupOpenGroup( group, subgroupNames[i], nullptr ) )
+          {
+            recurseGroup( subgroup, QStringList( currentPath ) << QString::fromUtf8( subgroupNames[i] ) );
+            GDALGroupRelease( subgroup );
+          }
+        }
+        CSLDestroy( subgroupNames );
+      }
+    };
+
+    recurseGroup( rootGroup, {} );
+    GDALGroupRelease( rootGroup );
+  }
+#endif
 
   return res;
 }
@@ -1383,7 +1517,13 @@ QgsAbstractProviderConnection *QgsOgrProviderMetadata::createConnection( const Q
 
 QgsAbstractProviderConnection *QgsOgrProviderMetadata::createConnection( const QString &uri, const QVariantMap &configuration )
 {
-  return new QgsGeoPackageProviderConnection( uri, configuration );
+  const QVariantMap parts = QgsProviderRegistry::instance()->providerMetadata( QStringLiteral( "ogr" ) )->decodeUri( uri );
+  const QString path = parts.value( QStringLiteral( "path" ) ).toString();
+  const QFileInfo fi( path );
+  if ( fi.suffix().compare( QLatin1String( "gpkg" ), Qt::CaseInsensitive ) == 0 )
+    return new QgsGeoPackageProviderConnection( uri, configuration );
+  else
+    return new QgsOgrProviderConnection( uri, configuration );
 }
 
 void QgsOgrProviderMetadata::deleteConnection( const QString &name )

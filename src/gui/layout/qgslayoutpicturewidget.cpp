@@ -111,17 +111,6 @@ QgsLayoutPictureWidget::QgsLayoutPictureWidget( QgsLayoutItemPicture *picture )
 
   setGuiElementValues();
 
-  switch ( mPicture->mode() )
-  {
-    case QgsLayoutItemPicture::FormatSVG:
-    case QgsLayoutItemPicture::FormatUnknown:
-      mRadioSVG->setChecked( true );
-      break;
-    case QgsLayoutItemPicture::FormatRaster:
-      mRadioRaster->setChecked( true );
-      break;
-  }
-
   connect( mPicture, &QgsLayoutObject::changed, this, &QgsLayoutPictureWidget::setGuiElementValues );
   connect( mPicture, &QgsLayoutItemPicture::pictureRotationChanged, this, &QgsLayoutPictureWidget::setPicRotationSpinValue );
 
@@ -330,6 +319,18 @@ void QgsLayoutPictureWidget::setGuiElementValues()
       mAnchorPointComboBox->setEnabled( false );
     }
 
+    switch ( mPicture->mode() )
+    {
+      case QgsLayoutItemPicture::FormatSVG:
+      case QgsLayoutItemPicture::FormatUnknown:
+        mRadioSVG->setChecked( true );
+        break;
+      case QgsLayoutItemPicture::FormatRaster:
+        mRadioRaster->setChecked( true );
+        break;
+    }
+
+    mSvgSelectorWidget->setSvgPath( mPicture->picturePath() );
     mSvgSelectorWidget->setSvgParameters( mPicture->svgDynamicParameters() );
 
     updateSvgParamGui( false );
@@ -382,6 +383,7 @@ void QgsLayoutPictureWidget::updateSvgParamGui( bool resetValues )
     mFillColorButton->setColor( fill );
   }
   mFillColorButton->setEnabled( hasFillParam );
+  mFillColorDDBtn->setEnabled( hasFillParam );
   mFillColorButton->setAllowOpacity( hasFillOpacityParam );
   if ( resetValues )
   {
@@ -395,12 +397,14 @@ void QgsLayoutPictureWidget::updateSvgParamGui( bool resetValues )
     mStrokeColorButton->setColor( stroke );
   }
   mStrokeColorButton->setEnabled( hasStrokeParam );
+  mStrokeColorDDBtn->setEnabled( hasStrokeParam );
   mStrokeColorButton->setAllowOpacity( hasStrokeOpacityParam );
   if ( hasDefaultStrokeWidth && resetValues )
   {
     mStrokeWidthSpinBox->setValue( defaultStrokeWidth );
   }
   mStrokeWidthSpinBox->setEnabled( hasStrokeWidthParam );
+  mStrokeWidthDDBtn->setEnabled( hasStrokeWidthParam );
 }
 
 void QgsLayoutPictureWidget::mFillColorButton_colorChanged( const QColor &color )

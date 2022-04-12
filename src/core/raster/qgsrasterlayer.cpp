@@ -24,6 +24,7 @@ email                : tim at linfiniti.com
 #include "qgslayermetadataformatter.h"
 #include "qgslogger.h"
 #include "qgsmaplayerlegend.h"
+#include "qgsmaplayerutils.h"
 #include "qgsmaptopixel.h"
 #include "qgsmessagelog.h"
 #include "qgsmultibandcolorrenderer.h"
@@ -58,6 +59,8 @@ email                : tim at linfiniti.com
 #include "qgsruntimeprofiler.h"
 #include "qgsmaplayerfactory.h"
 #include "qgsrasterpipe.h"
+#include "qgsrasterlayerelevationproperties.h"
+#include "qgsrasterlayerprofilegenerator.h"
 
 #include <cmath>
 #include <cstdio>
@@ -106,8 +109,8 @@ QgsRasterLayer::QgsRasterLayer()
   , QSTRING_NOT_SET( QStringLiteral( "Not Set" ) )
   , TRSTRING_NOT_SET( tr( "Not Set" ) )
   , mTemporalProperties( new QgsRasterLayerTemporalProperties( this ) )
+  , mElevationProperties( new QgsRasterLayerElevationProperties( this ) )
   , mPipe( std::make_unique< QgsRasterPipe >() )
-
 {
   init();
   setValid( false );
@@ -122,6 +125,7 @@ QgsRasterLayer::QgsRasterLayer( const QString &uri,
   , QSTRING_NOT_SET( QStringLiteral( "Not Set" ) )
   , TRSTRING_NOT_SET( tr( "Not Set" ) )
   , mTemporalProperties( new QgsRasterLayerTemporalProperties( this ) )
+  , mElevationProperties( new QgsRasterLayerElevationProperties( this ) )
   , mPipe( std::make_unique< QgsRasterPipe >() )
 {
   mShouldValidateCrs = !options.skipCrsValidation;
@@ -161,6 +165,8 @@ QgsRasterLayer *QgsRasterLayer::clone() const
   }
   QgsRasterLayer *layer = new QgsRasterLayer( source(), name(), mProviderKey, options );
   QgsMapLayer::clone( layer );
+  layer->mElevationProperties = mElevationProperties->clone();
+  layer->mElevationProperties->setParent( layer );
 
   // do not clone data provider which is the first element in pipe
   for ( int i = 1; i < mPipe->size(); i++ )
@@ -171,6 +177,14 @@ QgsRasterLayer *QgsRasterLayer::clone() const
   layer->pipe()->setDataDefinedProperties( mPipe->dataDefinedProperties() );
 
   return layer;
+}
+
+QgsAbstractProfileGenerator *QgsRasterLayer::createProfileGenerator( const QgsProfileRequest &request )
+{
+  if ( !mElevationProperties->isEnabled() )
+    return nullptr;
+
+  return new QgsRasterLayerProfileGenerator( this, request );
 }
 
 //////////////////////////////////////////////////////////
@@ -325,45 +339,12 @@ QString QgsRasterLayer::htmlMetadata() const
   const QgsLayerMetadataFormatter htmlFormatter( metadata() );
   QString myMetadata = QStringLiteral( "<html><head></head>\n<body>\n" );
 
+  myMetadata += generalHtmlMetadata();
+
   // Begin Provider section
-  myMetadata += QStringLiteral( "<h1>" ) + tr( "Information from provider" ) + QStringLiteral( "</h1>\n<hr>\n" ) %
-                QStringLiteral( "<table class=\"list-view\">\n" ) %
-
-                // name
-                QStringLiteral( "<tr><td class=\"highlight\">" ) % tr( "Name" ) % QStringLiteral( "</td><td>" ) % name() % QStringLiteral( "</td></tr>\n" );
-
-  // local path
-  QVariantMap uriComponents = QgsProviderRegistry::instance()->decodeUri( mProviderKey, publicSource() );
-  QString path;
-  bool isLocalPath = false;
-  if ( uriComponents.contains( QStringLiteral( "path" ) ) )
-  {
-    path = uriComponents[QStringLiteral( "path" )].toString();
-    if ( QFile::exists( path ) )
-    {
-      isLocalPath = true;
-      myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) % tr( "Path" ) % QStringLiteral( "</td><td>%1" ).arg( QStringLiteral( "<a href=\"%1\">%2</a>" ).arg( QUrl::fromLocalFile( path ).toString(), QDir::toNativeSeparators( path ) ) ) + QStringLiteral( "</td></tr>\n" );
-    }
-  }
-  if ( uriComponents.contains( QStringLiteral( "url" ) ) )
-  {
-    const QString url = uriComponents[QStringLiteral( "url" )].toString();
-    myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) % tr( "URL" ) % QStringLiteral( "</td><td>%1" ).arg( QStringLiteral( "<a href=\"%1\">%2</a>" ).arg( QUrl( url ).toString(), url ) ) + QStringLiteral( "</td></tr>\n" );
-  }
-
-  // data source
-  if ( publicSource() != path || !isLocalPath )
-    myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) + tr( "Source" ) + QStringLiteral( "</td><td>%1" ).arg( publicSource() != path ? publicSource() : path ) + QStringLiteral( "</td></tr>\n" );
-
-  myMetadata += QLatin1String( "</table>\n<br><br>" );
-
-  // CRS
-  myMetadata += crsHtmlMetadata();
-
-  myMetadata += QStringLiteral( "<h1>" ) + tr( "Properties" ) + QStringLiteral( "</h1>\n<hr>\n" ) + QStringLiteral( "<table class=\"list-view\">\n" );
+  myMetadata += QStringLiteral( "<h1>" ) + tr( "Information from provider" ) + QStringLiteral( "</h1>\n<hr>\n" ) + QStringLiteral( "<table class=\"list-view\">\n" );
 
   myMetadata += QStringLiteral( "\n" ) %
-
                 // Extent
                 QStringLiteral( "<tr><td class=\"highlight\">" ) % tr( "Extent" ) % QStringLiteral( "</td><td>" ) % extent().toString() % QStringLiteral( "</td></tr>\n" ) %
 
@@ -430,10 +411,13 @@ QString QgsRasterLayer::htmlMetadata() const
                 mDataProvider->htmlMetadata() %
 
                 // End Provider section
-                QStringLiteral( "</table>\n<br><br>" ) %
+                QStringLiteral( "</table>\n<br><br>" );
 
-                // Identification section
-                QStringLiteral( "<h1>" ) % tr( "Identification" ) % QStringLiteral( "</h1>\n<hr>\n" ) %
+  // CRS
+  myMetadata += crsHtmlMetadata();
+
+  // Identification section
+  myMetadata += QStringLiteral( "<h1>" ) % tr( "Identification" ) % QStringLiteral( "</h1>\n<hr>\n" ) %
                 htmlFormatter.identificationSectionHtml() %
                 QStringLiteral( "<br><br>\n" ) %
 
@@ -507,6 +491,16 @@ QString QgsRasterLayer::htmlMetadata() const
 
                  QStringLiteral( "\n</body>\n</html>\n" );
   return myMetadata;
+}
+
+Qgis::MapLayerProperties QgsRasterLayer::properties() const
+{
+  Qgis::MapLayerProperties res;
+  if ( mDataProvider && ( mDataProvider->flags() & Qgis::DataProviderFlag::IsBasemapSource ) )
+  {
+    res |= Qgis::MapLayerProperty::IsBasemapLayer;
+  }
+  return res;
 }
 
 QPixmap QgsRasterLayer::paletteAsPixmap( int bandNumber )
@@ -614,7 +608,7 @@ void QgsRasterLayer::init()
 {
   mRasterType = QgsRasterLayer::GrayOrUndefined;
 
-  setLegend( QgsMapLayerLegend::defaultRasterLegend( this ) );
+  whileBlocking( this )->setLegend( QgsMapLayerLegend::defaultRasterLegend( this ) );
 
   setRendererForDrawingStyle( QgsRaster::UndefinedDrawingStyle );
 
@@ -628,7 +622,8 @@ void QgsRasterLayer::setDataProvider( QString const &provider, const QgsDataProv
   QgsDebugMsgLevel( QStringLiteral( "Entered" ), 4 );
   setValid( false ); // assume the layer is invalid until we determine otherwise
 
-  mPipe->remove( mDataProvider ); // deletes if exists
+  // deletes pipe elements (including data provider)
+  mPipe = std::make_unique< QgsRasterPipe >();
   mDataProvider = nullptr;
 
   // XXX should I check for and possibly delete any pre-existing providers?
@@ -1087,6 +1082,11 @@ bool QgsRasterLayer::ignoreExtents() const
 QgsMapLayerTemporalProperties *QgsRasterLayer::temporalProperties()
 {
   return mTemporalProperties;
+}
+
+QgsMapLayerElevationProperties *QgsRasterLayer::elevationProperties()
+{
+  return mElevationProperties;
 }
 
 void QgsRasterLayer::setContrastEnhancement( QgsContrastEnhancement::ContrastEnhancementAlgorithm algorithm, QgsRasterMinMaxOrigin::Limits limits, const QgsRectangle &extent, int sampleSize, bool generateLookupTableFlag )
@@ -2259,7 +2259,7 @@ bool QgsRasterLayer::writeXml( QDomNode &layer_node,
     noDataRangeList.setAttribute( QStringLiteral( "useSrcNoData" ), mDataProvider->useSourceNoDataValue( bandNo ) );
 
     const auto constUserNoDataValues = mDataProvider->userNoDataValues( bandNo );
-    for ( const QgsRasterRange range : constUserNoDataValues )
+    for ( const QgsRasterRange &range : constUserNoDataValues )
     {
       QDomElement noDataRange = document.createElement( QStringLiteral( "noDataRange" ) );
 
@@ -2277,6 +2277,8 @@ bool QgsRasterLayer::writeXml( QDomNode &layer_node,
   }
 
   writeStyleManager( layer_node, document );
+
+  serverProperties()->writeXml( layer_node, document );
 
   //write out the symbology
   QString errorMsg;
@@ -2401,6 +2403,17 @@ QString QgsRasterLayer::encodedSource( const QString &source, const QgsReadWrite
       src = uri.encodedUri();
       handled = true;
     }
+  }
+  else if ( providerType() == "virtualraster" )
+  {
+
+    QgsRasterDataProvider::VirtualRasterParameters decodedVirtualParams = QgsRasterDataProvider::decodeVirtualRasterProviderUri( src );
+
+    for ( auto &it : decodedVirtualParams.rInputLayers )
+    {
+      it.uri = context.pathResolver().writePath( it.uri );
+    }
+    src = QgsRasterDataProvider::encodeVirtualRasterProviderUri( decodedVirtualParams ) ;
   }
 
   if ( !handled )
@@ -2578,6 +2591,18 @@ QString QgsRasterLayer::decodedSource( const QString &source, const QString &pro
           handled = true;
         }
       }
+    }
+
+    if ( provider == QLatin1String( "virtualraster" ) )
+    {
+      QgsRasterDataProvider::VirtualRasterParameters decodedVirtualParams = QgsRasterDataProvider::decodeVirtualRasterProviderUri( src );
+
+      for ( auto &it : decodedVirtualParams.rInputLayers )
+      {
+        it.uri = context.pathResolver().readPath( it.uri );
+      }
+      src = QgsRasterDataProvider::encodeVirtualRasterProviderUri( decodedVirtualParams ) ;
+      handled = true;
     }
 
     if ( !handled )

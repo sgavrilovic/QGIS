@@ -39,6 +39,12 @@ void QgsMapLayerComboBox::setExcludedProviders( const QStringList &providers )
   mProxyModel->setExcludedProviders( providers );
 }
 
+void  QgsMapLayerComboBox::setProject( QgsProject *project )
+{
+  mProxyModel->setProject( project );
+}
+
+
 QStringList QgsMapLayerComboBox::excludedProviders() const
 {
   return mProxyModel->excludedProviders();
@@ -72,6 +78,16 @@ void QgsMapLayerComboBox::setAdditionalItems( const QStringList &items )
 QStringList QgsMapLayerComboBox::additionalItems() const
 {
   return mProxyModel->sourceLayerModel()->additionalItems();
+}
+
+void QgsMapLayerComboBox::setAdditionalLayers( const QList<QgsMapLayer *> &layers )
+{
+  mProxyModel->sourceLayerModel()->setAdditionalLayers( layers );
+}
+
+QList<QgsMapLayer *> QgsMapLayerComboBox::additionalLayers() const
+{
+  return mProxyModel->sourceLayerModel()->additionalLayers();
 }
 
 void QgsMapLayerComboBox::setLayer( QgsMapLayer *layer )

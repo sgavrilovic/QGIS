@@ -19,7 +19,7 @@
 #include "qgslabelingengine.h"
 #include "qgslogger.h"
 #include "qgsmaplayerrenderer.h"
-#include "qgsmaplayerlistutils.h"
+#include "qgsmaplayerlistutils_p.h"
 #include "qgsvectorlayerlabeling.h"
 
 #include <QtConcurrentRun>
@@ -39,17 +39,18 @@ void QgsMapRendererAbstractCustomPainterJob::preparePainter( QPainter *painter, 
   // clear the background
   painter->fillRect( 0, 0, mSettings.deviceOutputSize().width(), mSettings.deviceOutputSize().height(), backgroundColor );
 
-  painter->setRenderHint( QPainter::Antialiasing, mSettings.testFlag( QgsMapSettings::Antialiasing ) );
+  painter->setRenderHint( QPainter::Antialiasing, mSettings.testFlag( Qgis::MapSettingsFlag::Antialiasing ) );
+  painter->setRenderHint( QPainter::SmoothPixmapTransform, mSettings.testFlag( Qgis::MapSettingsFlag::HighQualityImageTransforms ) );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 13, 0)
-  painter->setRenderHint( QPainter::LosslessImageRendering, mSettings.testFlag( QgsMapSettings::LosslessImageRendering ) );
+  painter->setRenderHint( QPainter::LosslessImageRendering, mSettings.testFlag( Qgis::MapSettingsFlag::LosslessImageRendering ) );
 #endif
 
 #ifndef QT_NO_DEBUG
   QPaintDevice *paintDevice = painter->device();
   const QString errMsg = QStringLiteral( "pre-set DPI not equal to painter's DPI (%1 vs %2)" )
                          .arg( paintDevice->logicalDpiX() )
-                         .arg( mSettings.outputDpi() * mSettings.devicePixelRatio() );
-  Q_ASSERT_X( qgsDoubleNear( paintDevice->logicalDpiX(), mSettings.outputDpi() * mSettings.devicePixelRatio(), 1.0 ),
+                         .arg( mSettings.outputDpi() );
+  Q_ASSERT_X( qgsDoubleNear( paintDevice->logicalDpiX(), mSettings.outputDpi(), 1.0 ),
               "Job::startRender()", errMsg.toLatin1().data() );
 #endif
 }
@@ -97,7 +98,7 @@ void QgsMapRendererCustomPainterJob::startPrivate()
 
   mLabelingEngineV2.reset();
 
-  if ( mSettings.testFlag( QgsMapSettings::DrawLabeling ) )
+  if ( mSettings.testFlag( Qgis::MapSettingsFlag::DrawLabeling ) )
   {
     mLabelingEngineV2.reset( new QgsDefaultLabelingEngine() );
     mLabelingEngineV2->setMapSettings( mSettings );
@@ -294,6 +295,8 @@ void QgsMapRendererCustomPainterJob::doRender()
     if ( job.context()->renderingStopped() )
       break;
 
+    emit layerRenderingStarted( job.layerId );
+
     if ( ! hasSecondPass && job.context()->useAdvancedEffects() )
     {
       // Set the QPainter composition mode so that this layer is rendered using
@@ -325,11 +328,13 @@ void QgsMapRendererCustomPainterJob::doRender()
       mPainter->setOpacity( 1.0 );
     }
 
+    emit layerRendered( job.layerId );
   }
 
+  emit renderingLayersFinished();
   QgsDebugMsgLevel( QStringLiteral( "Done rendering map layers" ), 5 );
 
-  if ( mSettings.testFlag( QgsMapSettings::DrawLabeling ) && !mLabelJob.context.renderingStopped() )
+  if ( mSettings.testFlag( Qgis::MapSettingsFlag::DrawLabeling ) && !mLabelJob.context.renderingStopped() )
   {
     if ( !mLabelJob.cached )
     {

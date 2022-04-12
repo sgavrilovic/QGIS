@@ -17,7 +17,7 @@ set(CMAKE_LINK_DEPENDS_NO_SHARED ON)
 #############################################################
 # Project and version
 set(CPACK_PACKAGE_VERSION_MAJOR "3")
-set(CPACK_PACKAGE_VERSION_MINOR "21")
+set(CPACK_PACKAGE_VERSION_MINOR "25")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(COMPLETE_VERSION ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH})
 set(RELEASE_NAME "Master")
@@ -119,9 +119,8 @@ set (WITH_CORE TRUE CACHE BOOL "Determines whether QGIS core should be built.")
 mark_as_advanced(WITH_CORE)
 
 if(WITH_CORE)
-  # Only GRASS 7 is currently supported but we keep dual version support in cmake for possible future switch to GRASS 8.
   # Try to configure and build GRASS plugin by default
-  foreach (GRASS_SEARCH_VERSION 7)
+  foreach (GRASS_SEARCH_VERSION 7 8)
     # Legacy note:
     # For GRASS 6 there were used cached variables without version suffix so that existing caches didn't have to be reconfigured.
     # Cached variables were: WITH_GRASS, WITH_GRASS7, GRASS_PREFIX, GRASS_PREFIX7, GRASS_INCLUDE_DIR, GRASS_INCLUDE_DIR7
@@ -149,11 +148,32 @@ if(WITH_CORE)
 
   set (WITH_DESKTOP TRUE CACHE BOOL "Determines whether QGIS desktop should be built")
 
+  if(WITH_DESKTOP)
+      if((WIN32 AND NOT MINGW) OR (UNIX AND NOT APPLE AND NOT ANDROID AND NOT IOS))
+	set (CRASH_HANDLER_AVAILABLE TRUE)
+      else()
+	set (CRASH_HANDLER_AVAILABLE FALSE)
+      endif()
+
+      set (WITH_CRASH_HANDLER ${CRASH_HANDLER_AVAILABLE} CACHE BOOL "Determines whether the QGIS crash handler application should be built")
+      if(WITH_CRASH_HANDLER AND NOT CRASH_HANDLER_AVAILABLE)
+	message(FATAL_ERROR "Crash handler cannot be built on this environment. Set WITH_CRASH_HANDLER to false.")
+      endif()
+      if(WITH_CRASH_HANDLER)
+	set (HAVE_CRASH_HANDLER TRUE)    # used in qgsconfig.h
+      else()
+	set (HAVE_CRASH_HANDLER FALSE)    # used in qgsconfig.h
+      endif()
+  endif()
+
   set (WITH_3D FALSE CACHE BOOL "Determines whether QGIS 3D library should be built")
 
   set (WITH_QUICK FALSE CACHE BOOL "Determines whether QGIS Quick library should be built")
 
   set (WITH_QGIS_PROCESS TRUE CACHE BOOL "Determines whether the standalone \"qgis_process\" tool should be built")
+
+  set (NATIVE_CRSSYNC_BIN "" CACHE PATH "Path to a natively compiled synccrsdb binary. If set, crssync will not build but use provided bin instead.")
+  mark_as_advanced (NATIVE_CRSSYNC_BIN)
 
   # try to configure and build python bindings by default
   set (WITH_BINDINGS TRUE CACHE BOOL "Determines whether python bindings should be built")
@@ -177,6 +197,8 @@ if(WITH_CORE)
   # server disabled default because it needs FastCGI (which is optional dependency)
   set (WITH_SERVER FALSE CACHE BOOL "Determines whether QGIS server should be built")
   if(WITH_SERVER)
+    set (WITH_SERVER_LANDINGPAGE_WEBAPP FALSE CACHE BOOL "Determines whether QGIS server landingpage webapp should be built (requires nodejs and yarn)")
+
     set (SERVER_SKIP_ECW FALSE CACHE BOOL "Determines whether QGIS server should disable ECW (ECW in server apps requires a special license)")
 
     set (WITH_SERVER_PLUGINS ${WITH_BINDINGS} CACHE BOOL "Determines whether QGIS server support for python plugins should be built")
@@ -261,14 +283,10 @@ if(WITH_CORE)
   endif(WITH_HANA)
 
   set (WITH_PDAL FALSE CACHE BOOL "Determines whether PDAL support should be built")
-  if(WITH_PDAL)
-    set(HAVE_PDAL TRUE)
-  endif()
 
   set (WITH_EPT TRUE CACHE BOOL "Determines whether Entwine Point Cloud (EPT) support should be built")
-  if(WITH_EPT)
-    set(HAVE_EPT TRUE)
-  endif()
+
+  set (WITH_COPC TRUE CACHE BOOL "Determines whether Cloud Optimized Point Cloud (COPC) support should be built")
 
   set (WITH_THREAD_LOCAL TRUE CACHE BOOL "Determines whether std::thread_local should be used")
   mark_as_advanced(WITH_THREAD_LOCAL)
@@ -393,26 +411,28 @@ if(WITH_CORE)
     message(STATUS "Qt WebKit support DISABLED.")
   endif()
 
-  if (WITH_EPT)  # EPT provider
-    find_package(ZSTD) # for decompression of point clouds
-    if (NOT ZSTD_FOUND)
-      message(FATAL_ERROR "ZSTD not found - EPT provider cannot be built")
-    endif()
+  if (WITH_EPT OR WITH_COPC)
     find_package(LazPerf) # for decompression of point clouds
     if (NOT LazPerf_FOUND)
       message(STATUS "Using embedded laz-perf")
     endif()
+  endif()
+
+  if (WITH_EPT)  # EPT provider
+    find_package(ZSTD REQUIRED) # for decompression of point clouds
     set(HAVE_EPT TRUE)  # used in qgsconfig.h
+  endif()
+
+  if (WITH_COPC)  # COPC provider
+    set(HAVE_COPC TRUE)  # used in qgsconfig.h
   endif()
 
   if (WITH_PDAL)
     if (NOT WITH_EPT)
       message(FATAL_ERROR "PDAL provider cannot be built with EPT disabled")
     endif()
-    find_package(PDAL) # PDAL provider
-  endif()
-  if (PDAL_FOUND)
-    set(HAVE_PDAL TRUE)  # used in qgsconfig.h
+    find_package(PDAL REQUIRED) # PDAL provider
+    set(HAVE_PDAL_QGIS TRUE)  # used in qgisconfig.h. note -- we can't use HAVE_PDAL here as the grass public headers redefine this!
   endif()
 
   #############################################################
@@ -425,6 +445,9 @@ if(WITH_CORE)
   else()
     set(QT_MIN_VERSION 5.12.0)
     set(QT_VERSION_BASE "Qt5")
+    set(HAS_KDE_QT5_PDF_TRANSFORM_FIX FALSE CACHE BOOL "Using KDE's Qt 5.15 fork with the PDF brush transform fix")
+    set(HAS_KDE_QT5_SMALL_CAPS_FIX FALSE CACHE BOOL "Using KDE's Qt 5.15 fork with the QFont::SmallCaps fix")
+    set(HAS_KDE_QT5_FONT_STRETCH_FIX FALSE CACHE BOOL "Using KDE's Qt 5.15 fork with the QFont stretch fix")
   endif()
 
   # Use Qt5SerialPort optionally for GPS
@@ -607,6 +630,9 @@ if (PEDANTIC)
 
     # unavoidable - we can't avoid these, as older, supported compilers do not support removing the redundant move
     set(_warnings "${_warnings} -Wno-redundant-move")
+
+    # disable misleading-indentation warning -- it's slow to parse the sip files and not needed since we have the automated code styling rules
+    set(_warnings "${_warnings} -Wno-misleading-indentation")
 
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.9.999)
       # heaps of these thrown by Qt headers at the moment (sep 2019)
@@ -929,19 +955,19 @@ if (WITH_CORE AND WITH_BINDINGS AND NOT WITH_QT6)
   set (QGIS_PYTHON_OUTPUT_DIRECTORY ${PYTHON_OUTPUT_DIRECTORY}/qgis)
 
   # python support: check for interpreter, sip, pyqt5
+  find_package(SIP REQUIRED)
   find_package(PyQt5 REQUIRED)
   set(PYQT_SIP_FLAGS ${PYQT5_SIP_FLAGS})
   set(PYQT_SIP_DIR ${PYQT5_SIP_DIR})
   separate_arguments(PYQT_SIP_FLAGS) # convert space separated values to a list
 
-  find_package(SIP REQUIRED)
   find_package(Qsci REQUIRED)
   include(PythonMacros)
   include(PyQtMacros)
   include(SIPMacros)
 
   set(SIP_INCLUDES ${PYQT_SIP_DIR} ${CMAKE_SOURCE_DIR}/python)
-  set(SIP_CONCAT_PARTS 16)
+  set(SIP_CONCAT_PARTS 19)
 
   if (NOT BINDINGS_GLOBAL_INSTALL)
     set(Python_SITEARCH ${QGIS_DATA_DIR}/python)

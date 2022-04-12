@@ -34,6 +34,7 @@
 #include "qgspainteffect.h"
 #include "qgsfeaturefilterprovider.h"
 #include "qgsexception.h"
+#include "qgslabelsink.h"
 #include "qgslogger.h"
 #include "qgssettingsregistrycore.h"
 #include "qgsexpressioncontextutils.h"
@@ -47,13 +48,11 @@
 
 QgsVectorLayerRenderer::QgsVectorLayerRenderer( QgsVectorLayer *layer, QgsRenderContext &context )
   : QgsMapLayerRenderer( layer->id(), &context )
+  , mFeedback( std::make_unique< QgsFeedback >() )
   , mLayer( layer )
   , mFields( layer->fields() )
-  , mLabeling( false )
-  , mDiagrams( false )
+  , mSource( std::make_unique< QgsVectorLayerFeatureSource >( layer ) )
 {
-  mSource = std::make_unique< QgsVectorLayerFeatureSource >( layer );
-
   std::unique_ptr< QgsFeatureRenderer > mainRenderer( layer->renderer() ? layer->renderer()->clone() : nullptr );
 
   if ( !mainRenderer )
@@ -99,6 +98,7 @@ QgsVectorLayerRenderer::QgsVectorLayerRenderer( QgsVectorLayer *layer, QgsRender
     QgsVectorLayerTemporalContext temporalContext;
     temporalContext.setLayer( layer );
     mTemporalFilter = qobject_cast< const QgsVectorLayerTemporalProperties * >( layer->temporalProperties() )->createFilterString( temporalContext, context.temporalRange() );
+    QgsDebugMsgLevel( "Rendering with Temporal Filter: " + mTemporalFilter, 2 );
   }
 
   // if there's already a simplification method specified via the context, we respect that. Otherwise, we fall back
@@ -159,17 +159,13 @@ QgsVectorLayerRenderer::QgsVectorLayerRenderer( QgsVectorLayer *layer, QgsRender
 
   mClippingRegions = QgsMapClippingUtils::collectClippingRegionsForLayer( context, layer );
 
-  for ( const std::unique_ptr< QgsFeatureRenderer > &renderer : mRenderers )
+  if ( std::any_of( mRenderers.begin(), mRenderers.end(), []( const auto & renderer ) { return renderer->forceRasterRender(); } ) )
   {
-    if ( renderer->forceRasterRender() )
-    {
-      //raster rendering is forced for this layer
-      mForceRasterRender = true;
-      break;
-    }
+    //raster rendering is forced for this layer
+    mForceRasterRender = true;
   }
 
-  if ( context.testFlag( QgsRenderContext::UseAdvancedEffects ) &&
+  if ( context.testFlag( Qgis::RenderContextFlag::UseAdvancedEffects ) &&
        ( ( layer->blendMode() != QPainter::CompositionMode_SourceOver )
          || ( layer->featureBlendMode() != QPainter::CompositionMode_SourceOver )
          || ( !qgsDoubleNear( layer->opacity(), 1.0 ) ) ) )
@@ -190,7 +186,7 @@ void QgsVectorLayerRenderer::setLayerRenderingTimeHint( int time )
 
 QgsFeedback *QgsVectorLayerRenderer::feedback() const
 {
-  return mInterruptionChecker.get();
+  return mFeedback.get();
 }
 
 bool QgsVectorLayerRenderer::forceRasterRender() const
@@ -249,8 +245,6 @@ bool QgsVectorLayerRenderer::renderInternal( QgsFeatureRenderer *renderer )
 
   QgsScopedQPainterState painterState( context.painter() );
 
-  // MUST be created in the thread doing the rendering
-  mInterruptionChecker = std::make_unique< QgsVectorLayerRendererInterruptionChecker >( context );
   bool usingEffect = false;
   if ( renderer->paintEffect() && renderer->paintEffect()->enabled() )
   {
@@ -326,18 +320,20 @@ bool QgsVectorLayerRenderer::renderInternal( QgsFeatureRenderer *renderer )
 
     const QgsMapToPixel &mtp = context.mapToPixel();
     map2pixelTol *= mtp.mapUnitsPerPixel();
-    QgsCoordinateTransform ct = context.coordinateTransform();
+    const QgsCoordinateTransform ct = context.coordinateTransform();
 
     // resize the tolerance using the change of size of an 1-BBOX from the source CoordinateSystem to the target CoordinateSystem
     if ( ct.isValid() && !ct.isShortCircuited() )
     {
       try
       {
+        QgsCoordinateTransform toleranceTransform = ct;
         QgsPointXY center = context.extent().center();
-        double rectSize = ct.sourceCrs().isGeographic() ? 0.0008983 /* ~100/(40075014/360=111319.4833) */ : 100;
+        double rectSize = toleranceTransform.sourceCrs().mapUnits() == QgsUnitTypes::DistanceDegrees ? 0.0008983 /* ~100/(40075014/360=111319.4833) */ : 100;
 
         QgsRectangle sourceRect = QgsRectangle( center.x(), center.y(), center.x() + rectSize, center.y() + rectSize );
-        QgsRectangle targetRect = ct.transform( sourceRect );
+        toleranceTransform.setBallparkTransformsAreAppropriate( true );
+        QgsRectangle targetRect = toleranceTransform.transform( sourceRect );
 
         QgsDebugMsgLevel( QStringLiteral( "Simplify - SourceTransformRect=%1" ).arg( sourceRect.toString( 16 ) ), 4 );
         QgsDebugMsgLevel( QStringLiteral( "Simplify - TargetTransformRect=%1" ).arg( targetRect.toString( 16 ) ), 4 );
@@ -393,17 +389,17 @@ bool QgsVectorLayerRenderer::renderInternal( QgsFeatureRenderer *renderer )
     context.setVectorSimplifyMethod( vectorMethod );
   }
 
-  featureRequest.setFeedback( mInterruptionChecker.get() );
+  featureRequest.setFeedback( mFeedback.get() );
   // also set the interruption checker for the expression context, in case the renderer uses some complex expression
   // which could benefit from early exit paths...
-  context.expressionContext().setFeedback( mInterruptionChecker.get() );
+  context.expressionContext().setFeedback( mFeedback.get() );
 
   QgsFeatureIterator fit = mSource->getFeatures( featureRequest );
   // Attach an interruption checker so that iterators that have potentially
   // slow fetchFeature() implementations, such as in the WFS provider, can
   // check it, instead of relying on just the mContext.renderingStopped() check
   // in drawRenderer()
-  fit.setInterruptionChecker( mInterruptionChecker.get() );
+  fit.setInterruptionChecker( mFeedback.get() );
 
   if ( ( renderer->capabilities() & QgsFeatureRenderer::SymbolLevels ) && renderer->usingSymbolLevels() )
     drawRendererLevels( renderer, fit );
@@ -421,7 +417,6 @@ bool QgsVectorLayerRenderer::renderInternal( QgsFeatureRenderer *renderer )
   }
 
   context.expressionContext().setFeedback( nullptr );
-  mInterruptionChecker.reset();
   return true;
 }
 
@@ -467,7 +462,15 @@ void QgsVectorLayerRenderer::drawRenderer( QgsFeatureRenderer *renderer, QgsFeat
       bool drawMarker = isMainRenderer && ( mDrawVertexMarkers && context.drawEditingInformation() && ( !mVertexMarkerOnlyForSelection || sel ) );
 
       // render feature
-      bool rendered = renderer->renderFeature( fet, context, -1, sel, drawMarker );
+      bool rendered = false;
+      if ( !context.testFlag( Qgis::RenderContextFlag::SkipSymbolRendering ) )
+      {
+        rendered = renderer->renderFeature( fet, context, -1, sel, drawMarker );
+      }
+      else
+      {
+        rendered = renderer->willRenderFeature( fet, context );
+      }
 
       // labeling - register feature
       if ( rendered )
@@ -581,11 +584,14 @@ void QgsVectorLayerRenderer::drawRendererLevels( QgsFeatureRenderer *renderer, Q
       continue;
     }
 
-    if ( !features.contains( sym ) )
+    if ( !context.testFlag( Qgis::RenderContextFlag::SkipSymbolRendering ) )
     {
-      features.insert( sym, QList<QgsFeature>() );
+      if ( !features.contains( sym ) )
+      {
+        features.insert( sym, QList<QgsFeature>() );
+      }
+      features[sym].append( fet );
     }
-    features[sym].append( fet );
 
     // new labeling engine
     if ( isMainRenderer && context.labelingEngine() && ( mLabelProvider || mDiagramProvider ) )
@@ -721,7 +727,22 @@ void QgsVectorLayerRenderer::prepareLabeling( QgsVectorLayer *layer, QSet<QStrin
   {
     if ( layer->labelsEnabled() )
     {
-      mLabelProvider = layer->labeling()->provider( layer );
+      if ( context.labelSink() )
+      {
+        if ( const QgsRuleBasedLabeling *rbl = dynamic_cast<const QgsRuleBasedLabeling *>( layer->labeling() ) )
+        {
+          mLabelProvider = new QgsRuleBasedLabelSinkProvider( *rbl, layer, context.labelSink() );
+        }
+        else
+        {
+          QgsPalLayerSettings settings = layer->labeling()->settings();
+          mLabelProvider = new QgsLabelSinkProvider( layer, QString(), context.labelSink(), &settings );
+        }
+      }
+      else
+      {
+        mLabelProvider = layer->labeling()->provider( layer );
+      }
       if ( mLabelProvider )
       {
         engine2->addProvider( mLabelProvider );
@@ -782,23 +803,3 @@ void QgsVectorLayerRenderer::prepareDiagrams( QgsVectorLayer *layer, QSet<QStrin
   }
 }
 
-/*  -----------------------------------------  */
-/*  QgsVectorLayerRendererInterruptionChecker  */
-/*  -----------------------------------------  */
-
-QgsVectorLayerRendererInterruptionChecker::QgsVectorLayerRendererInterruptionChecker
-( const QgsRenderContext &context )
-  : mContext( context )
-  , mTimer( new QTimer( this ) )
-{
-  connect( mTimer, &QTimer::timeout, this, [ = ]
-  {
-    if ( mContext.renderingStopped() )
-    {
-      mTimer->stop();
-      cancel();
-    }
-  } );
-  mTimer->start( 50 );
-
-}

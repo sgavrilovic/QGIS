@@ -114,7 +114,7 @@ class QgsSpatiaLiteProvider final: public QgsVectorDataProvider
                                        QgsFeedback *feedback = nullptr ) const override;
 
     bool isValid() const override;
-    bool isSaveAndLoadStyleToDatabaseSupported() const override { return true; }
+    bool isSaveAndLoadStyleToDatabaseSupported() const override;
     bool addFeatures( QgsFeatureList &flist, QgsFeatureSink::Flags flags = QgsFeatureSink::Flags() ) override;
     bool deleteFeatures( const QgsFeatureIds &id ) override;
     bool truncate() override;
@@ -144,7 +144,9 @@ class QgsSpatiaLiteProvider final: public QgsVectorDataProvider
     QString description() const override;
     QgsAttributeList pkAttributeIndexes() const override;
     void invalidateConnections( const QString &connection ) override;
-    QList<QgsRelation> discoverRelations( const QgsVectorLayer *self, const QList<QgsVectorLayer *> &layers ) const override;
+    QList<QgsRelation> discoverRelations( const QgsVectorLayer *target, const QList<QgsVectorLayer *> &layers ) const override;
+
+    static QString providerKey();
 
     // static functions
     static void convertToGeosWKB( const unsigned char *blob, int blob_size,
@@ -412,6 +414,9 @@ class QgsSpatiaLiteProvider final: public QgsVectorDataProvider
     // QgsVectorDataProvider interface
   public:
     virtual QString defaultValueClause( int fieldIndex ) const override;
+
+    Qgis::VectorLayerTypeFlags vectorLayerTypeFlags() const override;
+
 };
 
 class QgsSpatiaLiteProviderMetadata final: public QgsProviderMetadata
@@ -420,7 +425,8 @@ class QgsSpatiaLiteProviderMetadata final: public QgsProviderMetadata
     QgsSpatiaLiteProviderMetadata();
 
     void cleanupProvider() override;
-    QString getStyleById( const QString &uri, QString styleId, QString &errCause ) override;
+    QString getStyleById( const QString &uri, const QString &styleId, QString &errCause ) override;
+    bool styleExists( const QString &uri, const QString &styleId, QString &errorCause ) override;
     bool saveStyle( const QString &uri, const QString &qmlStyle, const QString &sldStyle,
                     const QString &styleName, const QString &styleDescription,
                     const QString &uiFileContent, bool useAsDefault, QString &errCause ) override;

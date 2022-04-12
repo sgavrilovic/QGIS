@@ -146,10 +146,12 @@ void TestQgsField::gettersSetters()
   QCOMPARE( field.defaultValueDefinition().expression(), QString( "1+2" ) );
   QgsFieldConstraints constraints;
   constraints.setConstraint( QgsFieldConstraints::ConstraintNotNull, QgsFieldConstraints::ConstraintOriginProvider );
+  constraints.setDomainName( QStringLiteral( "domain" ) );
   field.setConstraints( constraints );
   QCOMPARE( field.constraints().constraints(), QgsFieldConstraints::ConstraintNotNull );
   QCOMPARE( field.constraints().constraintOrigin( QgsFieldConstraints::ConstraintNotNull ), QgsFieldConstraints::ConstraintOriginProvider );
   QCOMPARE( field.constraints().constraintOrigin( QgsFieldConstraints::ConstraintUnique ), QgsFieldConstraints::ConstraintOriginNotSet );
+  QCOMPARE( field.constraints().domainName(), QStringLiteral( "domain" ) );
   constraints.setConstraint( QgsFieldConstraints::ConstraintNotNull, QgsFieldConstraints::ConstraintOriginNotSet );
   field.setConstraints( constraints );
   QCOMPARE( field.constraints().constraints(), 0 );
@@ -318,6 +320,13 @@ void TestQgsField::equality()
   field1.setConstraints( constraints );
   QVERIFY( !( field1 == field2 ) );
   QVERIFY( field1 != field2 );
+
+  QgsFieldConstraints constraints1;
+  QgsFieldConstraints constraints2;
+  constraints1.setDomainName( QStringLiteral( "d" ) );
+  QVERIFY( !( constraints1 == constraints2 ) );
+  constraints2.setDomainName( QStringLiteral( "d" ) );
+  QVERIFY( constraints1 == constraints2 );
 }
 
 void TestQgsField::asVariant()
@@ -448,6 +457,12 @@ void TestQgsField::displayString()
   const QString testBAString( QStringLiteral( "test string" ) );
   const QByteArray testBA( testBAString.toLocal8Bit() );
   QCOMPARE( binaryField.displayString( testBA ), QStringLiteral( "BLOB" ) );
+
+  // array field
+  const QgsField stringArrayField( QStringLiteral( "stringArray" ), QVariant::StringList, QStringLiteral( "StringArray" ) );
+  QCOMPARE( stringArrayField.displayString( QStringList() << "A" << "B" << "C" ), QStringLiteral( "A, B, C" ) );
+  const QgsField intArrayField( QStringLiteral( "intArray" ), QVariant::List, QStringLiteral( "IntArray" ) );
+  QCOMPARE( intArrayField.displayString( QVariantList() << 1 << 2 << 3 ), QStringLiteral( "1, 2, 3" ) );
 }
 
 void TestQgsField::convertCompatible()
@@ -734,6 +749,20 @@ void TestQgsField::convertCompatible()
   intField = QgsField( QStringLiteral( "int" ), QVariant::Int, QStringLiteral( "Integer" ), 10 );
   QVariant vZero = 0;
   QVERIFY( intField.convertCompatible( vZero ) );
+
+  // Test json field conversion
+  const QgsField jsonField( QStringLiteral( "json" ), QVariant::String, QStringLiteral( "json" ) );
+  QVariant jsonValue = QVariant::fromValue( QVariantList() << 1 << 5 << 8 );
+  QVERIFY( jsonField.convertCompatible( jsonValue ) );
+  QCOMPARE( jsonValue.type(), QVariant::String );
+  QCOMPARE( jsonValue, QString( "[1,5,8]" ) );
+  QVariantMap variantMap;
+  variantMap.insert( QStringLiteral( "a" ), 1 );
+  variantMap.insert( QStringLiteral( "c" ), 3 );
+  jsonValue = QVariant::fromValue( variantMap );
+  QVERIFY( jsonField.convertCompatible( jsonValue ) );
+  QCOMPARE( jsonValue.type(), QVariant::String );
+  QCOMPARE( jsonValue, QString( "{\"a\":1,\"c\":3}" ) );
 }
 
 void TestQgsField::dataStream()

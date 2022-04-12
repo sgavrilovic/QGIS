@@ -13,10 +13,12 @@ set(TESTS
   testqgsappbrowserproviders.cpp
   testqgisappclipboard.cpp
   testqgisappdockwidgets.cpp
+  testqgsadvanceddigitizing.cpp
   testqgsattributetable.cpp
   testqgsapplocatorfilters.cpp
   testqgsdecorationscalebar.cpp
   testqgsfieldcalculator.cpp
+  testqgsmaptooleditannotation.cpp
   testqgsmaptoolidentifyaction.cpp
   testqgsmaptoollabel.cpp
   testqgsmaptoolselect.cpp
@@ -24,10 +26,10 @@ set(TESTS
   testqgsmaptoolrotatefeature.cpp
   testqgsmaptoolscalefeature.cpp
   testqgsmaptoolcircularstring.cpp
-  testqgsmaptoolcircle.cpp
   testqgsmaptooleditmesh.cpp
   testqgsmaptoolmovefeature.cpp
   testqgsmaptoolellipse.cpp
+  testqgsmaptoolcircle.cpp
   testqgsmaptoolrectangle.cpp
   testqgsmaptoolregularpolygon.cpp
   testqgsmaptoolsplitparts.cpp
@@ -44,6 +46,11 @@ set(TESTS
   testqgsgpsinformationwidget.cpp
   testqgslabelpropertydialog.cpp
 )
+
+if (HAVE_GEOREFERENCER)
+  set(TESTS ${TESTS} testqgsgeoreferencer.cpp)
+endif()
+
 if (WITH_BINDINGS)
   set(TESTS ${TESTS} testqgisapppython.cpp)
 endif()

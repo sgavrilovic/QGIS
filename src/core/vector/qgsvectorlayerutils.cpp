@@ -384,7 +384,7 @@ bool QgsVectorLayerUtils::validateAttribute( const QgsVectorLayer *layer, const 
 
   QgsFields fields = layer->fields();
   QgsField field = fields.at( attributeIndex );
-  QVariant value = feature.attribute( attributeIndex );
+  const QVariant value = feature.attribute( attributeIndex );
   bool valid = true;
   errors.clear();
 
@@ -1125,8 +1125,11 @@ bool QgsVectorLayerUtils::impactsCascadeFeatures( const QgsVectorLayer *layer, c
   return !context.layers().isEmpty();
 }
 
-QString QgsVectorLayerUtils::guessFriendlyIdentifierField( const QgsFields &fields )
+QString QgsVectorLayerUtils::guessFriendlyIdentifierField( const QgsFields &fields, bool *foundFriendly )
 {
+  if ( foundFriendly )
+    *foundFriendly = false;
+
   if ( fields.isEmpty() )
     return QString();
 
@@ -1143,7 +1146,8 @@ QString QgsVectorLayerUtils::guessFriendlyIdentifierField( const QgsFields &fiel
                                   QStringLiteral( "desc" ),
                                   QStringLiteral( "nom" ),
                                   QStringLiteral( "street" ),
-                                  QStringLiteral( "road" ) };
+                                  QStringLiteral( "road" ),
+                                  QStringLiteral( "label" ) };
 
   // anti-names
   // this list of strings indicates parts of field names which make the name "less interesting".
@@ -1197,6 +1201,8 @@ QString QgsVectorLayerUtils::guessFriendlyIdentifierField( const QgsFields &fiel
   const QString candidateName = bestCandidateName.isEmpty() ? bestCandidateNameWithAntiCandidate : bestCandidateName;
   if ( !candidateName.isEmpty() )
   {
+    if ( foundFriendly )
+      *foundFriendly = true;
     return candidateName;
   }
   else

@@ -31,7 +31,7 @@
 #include "qgspallabeling.h"
 #include "qgsexception.h"
 #include "qgslabelingengine.h"
-#include "qgsmaplayerlistutils.h"
+#include "qgsmaplayerlistutils_p.h"
 #include "qgsvectorlayerlabeling.h"
 #include "qgssettings.h"
 #include "qgsexpressioncontextutils.h"
@@ -43,6 +43,7 @@
 #include "qgsmaplayertemporalproperties.h"
 #include "qgsmaplayerelevationproperties.h"
 #include "qgsvectorlayerrenderer.h"
+#include "qgsrendereditemresults.h"
 
 ///@cond PRIVATE
 
@@ -130,7 +131,11 @@ bool LayerRenderJob::imageCanBeComposed() const
 
 QgsMapRendererJob::QgsMapRendererJob( const QgsMapSettings &settings )
   : mSettings( settings )
+  , mRenderedItemResults( std::make_unique< QgsRenderedItemResults >( settings.extent() ) )
+  , mLabelingEngineFeedback( new QgsLabelingEngineFeedback( this ) )
 {}
+
+QgsMapRendererJob::~QgsMapRendererJob() = default;
 
 void QgsMapRendererJob::start()
 {
@@ -141,6 +146,16 @@ void QgsMapRendererJob::start()
     mErrors.append( QgsMapRendererJob::Error( QString(), tr( "Invalid map settings" ) ) );
     emit finished();
   }
+}
+
+QStringList QgsMapRendererJob::layersRedrawnFromCache() const
+{
+  return mLayersRedrawnFromCache;
+}
+
+QgsRenderedItemResults *QgsMapRendererJob::takeRenderedItemResults()
+{
+  return mRenderedItemResults.release();
 }
 
 QgsMapRendererQImageJob::QgsMapRendererQImageJob( const QgsMapSettings &settings )
@@ -157,6 +172,11 @@ QgsMapRendererJob::Errors QgsMapRendererJob::errors() const
 void QgsMapRendererJob::setCache( QgsMapRendererCache *cache )
 {
   mCache = cache;
+}
+
+QgsLabelingEngineFeedback *QgsMapRendererJob::labelingEngineFeedback()
+{
+  return mLabelingEngineFeedback;
 }
 
 QHash<QgsMapLayer *, int> QgsMapRendererJob::perLayerRenderingTime() const
@@ -215,6 +235,7 @@ bool QgsMapRendererJob::prepareLabelCache() const
       case QgsMapLayerType::PluginLayer:
       case QgsMapLayerType::MeshLayer:
       case QgsMapLayerType::PointCloudLayer:
+      case QgsMapLayerType::GroupLayer:
         break;
     }
 
@@ -266,8 +287,8 @@ bool QgsMapRendererJob::reprojectToLayerExtent( const QgsMapLayer *ml, const Qgs
         // if we transform from a projected coordinate system check
         // check if transforming back roughly returns the input
         // extend - otherwise render the world.
-        QgsRectangle extent1 = approxTransform.transformBoundingBox( extent, QgsCoordinateTransform::ReverseTransform );
-        QgsRectangle extent2 = approxTransform.transformBoundingBox( extent1, QgsCoordinateTransform::ForwardTransform );
+        QgsRectangle extent1 = approxTransform.transformBoundingBox( extent, Qgis::TransformDirection::Reverse );
+        QgsRectangle extent2 = approxTransform.transformBoundingBox( extent1, Qgis::TransformDirection::Forward );
 
         QgsDebugMsgLevel( QStringLiteral( "\n0:%1 %2x%3\n1:%4\n2:%5 %6x%7 (w:%8 h:%9)" )
                           .arg( extent.toString() ).arg( extent.width() ).arg( extent.height() )
@@ -295,15 +316,15 @@ bool QgsMapRendererJob::reprojectToLayerExtent( const QgsMapLayer *ml, const Qgs
       {
         // Note: ll = lower left point
         QgsPointXY ll = approxTransform.transform( extent.xMinimum(), extent.yMinimum(),
-                        QgsCoordinateTransform::ReverseTransform );
+                        Qgis::TransformDirection::Reverse );
 
         //   and ur = upper right point
         QgsPointXY ur = approxTransform.transform( extent.xMaximum(), extent.yMaximum(),
-                        QgsCoordinateTransform::ReverseTransform );
+                        Qgis::TransformDirection::Reverse );
 
         QgsDebugMsgLevel( QStringLiteral( "in:%1 (ll:%2 ur:%3)" ).arg( extent.toString(), ll.toString(), ur.toString() ), 4 );
 
-        extent = approxTransform.transformBoundingBox( extent, QgsCoordinateTransform::ReverseTransform );
+        extent = approxTransform.transformBoundingBox( extent, Qgis::TransformDirection::Reverse );
 
         QgsDebugMsgLevel( QStringLiteral( "out:%1 (w:%2 h:%3)" ).arg( extent.toString() ).arg( extent.width() ).arg( extent.height() ), 4 );
 
@@ -340,7 +361,7 @@ bool QgsMapRendererJob::reprojectToLayerExtent( const QgsMapLayer *ml, const Qgs
         res = false;
       }
       else
-        extent = approxTransform.transformBoundingBox( extent, QgsCoordinateTransform::ReverseTransform );
+        extent = approxTransform.transformBoundingBox( extent, Qgis::TransformDirection::Reverse );
     }
   }
   catch ( QgsCsException & )
@@ -359,6 +380,8 @@ QImage *QgsMapRendererJob::allocateImage( QString layerId )
   QImage *image = new QImage( mSettings.deviceOutputSize(),
                               mSettings.outputImageFormat() );
   image->setDevicePixelRatio( static_cast<qreal>( mSettings.devicePixelRatio() ) );
+  image->setDotsPerMeterX( 1000 * mSettings.outputDpi() / 25.4 );
+  image->setDotsPerMeterY( 1000 * mSettings.outputDpi() / 25.4 );
   if ( image->isNull() )
   {
     mErrors.append( Error( layerId, tr( "Insufficient memory for image %1x%2" ).arg( mSettings.outputSize().width() ).arg( mSettings.outputSize().height() ) ) );
@@ -375,9 +398,10 @@ QPainter *QgsMapRendererJob::allocateImageAndPainter( QString layerId, QImage *&
   if ( image )
   {
     painter = new QPainter( image );
-    painter->setRenderHint( QPainter::Antialiasing, mSettings.testFlag( QgsMapSettings::Antialiasing ) );
+    painter->setRenderHint( QPainter::Antialiasing, mSettings.testFlag( Qgis::MapSettingsFlag::Antialiasing ) );
+    painter->setRenderHint( QPainter::SmoothPixmapTransform, mSettings.testFlag( Qgis::MapSettingsFlag::HighQualityImageTransforms ) );
 #if QT_VERSION >= QT_VERSION_CHECK(5, 13, 0)
-    painter->setRenderHint( QPainter::LosslessImageRendering, mSettings.testFlag( QgsMapSettings::LosslessImageRendering ) );
+    painter->setRenderHint( QPainter::LosslessImageRendering, mSettings.testFlag( Qgis::MapSettingsFlag::LosslessImageRendering ) );
 #endif
   }
   return painter;
@@ -477,10 +501,11 @@ std::vector<LayerRenderJob> QgsMapRendererJob::prepareJobs( QPainter *painter, Q
     job.context()->expressionContext().appendScope( QgsExpressionContextUtils::layerScope( ml ) );
     job.context()->setPainter( painter );
     job.context()->setLabelingEngine( labelingEngine2 );
+    job.context()->setLabelSink( labelSink() );
     job.context()->setCoordinateTransform( ct );
     job.context()->setExtent( r1 );
     if ( !haveExtentInLayerCrs )
-      job.context()->setFlag( QgsRenderContext::ApplyClipAfterReprojection, true );
+      job.context()->setFlag( Qgis::RenderContextFlag::ApplyClipAfterReprojection, true );
 
     if ( mFeatureFilterProvider )
       job.context()->setFeatureFilterProvider( mFeatureFilterProvider );
@@ -504,6 +529,7 @@ std::vector<LayerRenderJob> QgsMapRendererJob::prepareJobs( QPainter *painter, Q
       job.img->setDevicePixelRatio( static_cast<qreal>( mSettings.devicePixelRatio() ) );
       job.renderer = nullptr;
       job.context()->setPainter( nullptr );
+      mLayersRedrawnFromCache.append( ml->id() );
       continue;
     }
 
@@ -511,7 +537,10 @@ std::vector<LayerRenderJob> QgsMapRendererJob::prepareJobs( QPainter *painter, Q
     layerTime.start();
     job.renderer = ml->createMapRenderer( *( job.context() ) );
     if ( job.renderer )
+    {
       job.renderer->setLayerRenderingTimeHint( job.estimatedRenderingTime );
+      job.context()->setFeedback( job.renderer->feedback() );
+    }
 
     // If we are drawing with an alternative blending mode then we need to render to a separate image
     // before compositing this on the map. This effectively flattens the layer and prevents
@@ -729,6 +758,10 @@ std::vector< LayerRenderJob > QgsMapRendererJob::prepareSecondPassJobs( std::vec
     // the first pass job, would be to be able to call QgsMapLayerRenderer::render() with a QgsRenderContext.
     QgsVectorLayerRenderer *mapRenderer = static_cast<QgsVectorLayerRenderer *>( vl1->createMapRenderer( *job2.context() ) );
     job2.renderer = mapRenderer;
+    if ( job2.renderer )
+    {
+      job2.context()->setFeedback( job2.renderer->feedback() );
+    }
 
     // Modify the render context so that symbol layers get disabled as needed.
     // The map renderer stores a reference to the context, so we can modify it even after the map renderer creation (what we need here)
@@ -744,10 +777,11 @@ LabelRenderJob QgsMapRendererJob::prepareLabelingJob( QPainter *painter, QgsLabe
   job.context = QgsRenderContext::fromMapSettings( mSettings );
   job.context.setPainter( painter );
   job.context.setLabelingEngine( labelingEngine2 );
+  job.context.setFeedback( mLabelingEngineFeedback );
 
   QgsRectangle r1 = mSettings.visibleExtent();
   r1.grow( mSettings.extentBuffer() );
-  job.context.setExtent( mSettings.visibleExtent() );
+  job.context.setExtent( r1 );
 
   job.context.setFeatureFilterProvider( mFeatureFilterProvider );
   QgsCoordinateTransform ct;
@@ -809,6 +843,8 @@ void QgsMapRendererJob::cleanupJobs( std::vector<LayerRenderJob> &jobs )
       const QStringList errors = job.renderer->errors();
       for ( const QString &message : errors )
         mErrors.append( Error( job.renderer->layerId(), message ) );
+
+      mRenderedItemResults->appendResults( job.renderer->takeRenderedItemDetails(), *job.context() );
 
       delete job.renderer;
       job.renderer = nullptr;

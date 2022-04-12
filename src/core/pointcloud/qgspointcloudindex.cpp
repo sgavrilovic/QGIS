@@ -158,15 +158,13 @@ QgsPointCloudIndex::~QgsPointCloudIndex() = default;
 
 bool QgsPointCloudIndex::hasNode( const IndexedPointCloudNode &n ) const
 {
-  mHierarchyMutex.lock();
-  const bool found = mHierarchy.contains( n );
-  mHierarchyMutex.unlock();
-  return found;
+  QMutexLocker locker( &mHierarchyMutex );
+  return mHierarchy.contains( n );
 }
 
 QList<IndexedPointCloudNode> QgsPointCloudIndex::nodeChildren( const IndexedPointCloudNode &n ) const
 {
-  mHierarchyMutex.lock();
+  QMutexLocker locker( &mHierarchyMutex );
   Q_ASSERT( mHierarchy.contains( n ) );
   QList<IndexedPointCloudNode> lst;
   const int d = n.d() + 1;
@@ -181,7 +179,6 @@ QList<IndexedPointCloudNode> QgsPointCloudIndex::nodeChildren( const IndexedPoin
     if ( mHierarchy.contains( n2 ) )
       lst.append( n2 );
   }
-  mHierarchyMutex.unlock();
   return lst;
 }
 
@@ -247,10 +244,71 @@ int QgsPointCloudIndex::span() const
 
 int QgsPointCloudIndex::nodePointCount( const IndexedPointCloudNode &n )
 {
-  int count = -1;
   mHierarchyMutex.lock();
-  if ( mHierarchy.contains( n ) )
-    count = mHierarchy.contains( n );
+  const int count = mHierarchy.value( n, -1 );
   mHierarchyMutex.unlock();
   return count;
+}
+
+bool QgsPointCloudIndex::setSubsetString( const QString &subset )
+{
+  const QString lastExpression = mFilterExpression;
+  mFilterExpression.setExpression( subset );
+  if ( mFilterExpression.hasParserError() && !subset.isEmpty() )
+  {
+    mFilterExpression.setExpression( lastExpression );
+    return false;
+  }
+
+  // fail if expression references unknown attributes
+  int offset;
+  const QSet<QString> attributes = mFilterExpression.referencedAttributes();
+  for ( const QString &attribute : attributes )
+  {
+    if ( !mAttributes.find( attribute, offset ) )
+    {
+      mFilterExpression.setExpression( lastExpression );
+      return false;
+    }
+  }
+  return true;
+}
+
+QString QgsPointCloudIndex::subsetString() const
+{
+  return mFilterExpression;
+}
+
+QVariant QgsPointCloudIndex::metadataStatistic( const QString &attribute, QgsStatisticalSummary::Statistic statistic ) const
+{
+  if ( attribute == QStringLiteral( "X" ) && statistic == QgsStatisticalSummary::Min )
+    return mExtent.xMinimum();
+  if ( attribute == QStringLiteral( "X" ) && statistic == QgsStatisticalSummary::Max )
+    return mExtent.xMaximum();
+
+  if ( attribute == QStringLiteral( "Y" ) && statistic == QgsStatisticalSummary::Min )
+    return mExtent.yMinimum();
+  if ( attribute == QStringLiteral( "Y" ) && statistic == QgsStatisticalSummary::Max )
+    return mExtent.yMaximum();
+
+  if ( attribute == QStringLiteral( "Z" ) && statistic == QgsStatisticalSummary::Min )
+    return mZMin;
+  if ( attribute == QStringLiteral( "Z" ) && statistic == QgsStatisticalSummary::Max )
+    return mZMax;
+
+  return QVariant();
+}
+
+QVariantList QgsPointCloudIndex::metadataClasses( const QString &attribute ) const
+{
+  Q_UNUSED( attribute );
+  return QVariantList();
+}
+
+QVariant QgsPointCloudIndex::metadataClassStatistic( const QString &attribute, const QVariant &value, QgsStatisticalSummary::Statistic statistic ) const
+{
+  Q_UNUSED( attribute );
+  Q_UNUSED( value );
+  Q_UNUSED( statistic );
+  return QVariant();
 }

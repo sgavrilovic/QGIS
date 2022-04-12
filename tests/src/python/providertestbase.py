@@ -922,6 +922,9 @@ class ProviderTestCase(FeatureSourceTestCase):
         self.assertFalse(
             result, 'Provider reported success when changing an attribute value that violates a DB level CHECK constraint')
 
+        if getattr(self, 'stopEditableLayerWithCheckConstraint', None):
+            self.stopEditableLayerWithCheckConstraint()
+
     def testUniqueNotNullConstraints(self):
         """Test provider-level NOT NULL and UNIQUE constraints, to enable
         this test, implement getEditableLayerWithUniqueNotNullConstraints
@@ -1233,3 +1236,9 @@ class ProviderTestCase(FeatureSourceTestCase):
         self.assertEqual(feature.attribute(1), "test:8")
         self.assertFalse(QgsVectorLayerUtils.fieldIsEditable(vl, 1, feature))
         self.assertFalse(QgsVectorLayerUtils.fieldIsEditable(vl, 0, feature))
+
+        # CLEANUP: delete features added during test (cleanup)
+        vl.startEditing()
+        self.assertTrue(vl.deleteFeature(10))
+        self.assertTrue(vl.commitChanges())
+        # TODO: further cleanups in case attributes have been changed

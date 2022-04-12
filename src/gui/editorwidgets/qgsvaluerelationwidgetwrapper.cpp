@@ -27,6 +27,7 @@
 #include "qgsattributes.h"
 #include "qgsjsonutils.h"
 #include "qgspostgresstringutils.h"
+#include "qgsapplication.h"
 
 #include <QHeaderView>
 #include <QComboBox>
@@ -56,13 +57,13 @@ QVariant QgsValueRelationWidgetWrapper::value() const
     if ( cbxIdx > -1 )
     {
       v = mComboBox->currentData();
+      if ( v.isNull() )
+        v = QVariant( field().type() );
     }
   }
-
-  const int nofColumns = columnCount();
-
-  if ( mTableWidget )
+  else if ( mTableWidget )
   {
+    const int nofColumns = columnCount();
     QStringList selection;
     for ( int j = 0; j < mTableWidget->rowCount(); j++ )
     {
@@ -75,6 +76,12 @@ QVariant QgsValueRelationWidgetWrapper::value() const
             selection << item->data( Qt::UserRole ).toString();
         }
       }
+    }
+
+    // If there is no selection and allow NULL is not checked return NULL.
+    if ( selection.isEmpty() && ! config( QStringLiteral( "AllowNull" ) ).toBool( ) )
+    {
+      return QVariant( QVariant::Type::List );
     }
 
     QVariantList vl;
@@ -108,8 +115,7 @@ QVariant QgsValueRelationWidgetWrapper::value() const
       v = QgsPostgresStringUtils::buildArray( vl );
     }
   }
-
-  if ( mLineEdit )
+  else if ( mLineEdit )
   {
     for ( const QgsValueRelationFieldFormatter::ValueRelationItem &item : std::as_const( mCache ) )
     {
@@ -158,6 +164,7 @@ void QgsValueRelationWidgetWrapper::initWidget( QWidget *editor )
 
   if ( mComboBox )
   {
+    mComboBox->view()->setVerticalScrollBarPolicy( Qt::ScrollBarAsNeeded );
     connect( mComboBox, static_cast<void ( QComboBox::* )( int )>( &QComboBox::currentIndexChanged ),
              this, static_cast<void ( QgsEditorWidgetWrapper::* )()>( &QgsEditorWidgetWrapper::emitValueChanged ), Qt::UniqueConnection );
   }
@@ -241,7 +248,24 @@ void QgsValueRelationWidgetWrapper::updateValues( const QVariant &value, const Q
         break;
       }
     }
-    mComboBox->setCurrentIndex( idx );
+
+    if ( idx == -1 )
+    {
+      // if value doesn't exist, we show it in '(...)' (just like value map widget)
+      if ( value.isNull( ) )
+      {
+        mComboBox->setCurrentIndex( -1 );
+      }
+      else
+      {
+        mComboBox->addItem( value.toString().prepend( '(' ).append( ')' ), value );
+        mComboBox->setCurrentIndex( mComboBox->findData( value ) );
+      }
+    }
+    else
+    {
+      mComboBox->setCurrentIndex( idx );
+    }
   }
   else if ( mLineEdit )
   {

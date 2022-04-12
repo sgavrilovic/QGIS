@@ -179,6 +179,7 @@ QVariant QgsProviderSublayerModel::data( const QModelIndex &index, int role ) co
               case QgsMapLayerType::VectorTileLayer:
               case QgsMapLayerType::AnnotationLayer:
               case QgsMapLayerType::PointCloudLayer:
+              case QgsMapLayerType::GroupLayer:
                 return details.description();
             }
             break;
@@ -231,6 +232,9 @@ QVariant QgsProviderSublayerModel::data( const QModelIndex &index, int role ) co
 
       case static_cast< int >( Role::LayerNumber ):
         return details.layerNumber();
+
+      case static_cast< int >( Role::Flags ):
+        return static_cast< int >( details.flags() );
 
       default:
         return QVariant();
@@ -397,6 +401,9 @@ bool QgsProviderSublayerProxyModel::filterAcceptsRow( int source_row, const QMod
 {
   const QModelIndex sourceIndex = sourceModel()->index( source_row, 0, source_parent );
 
+  if ( !mIncludeSystemTables && static_cast< Qgis::SublayerFlags >( sourceModel()->data( sourceIndex, static_cast< int >( QgsProviderSublayerModel::Role::Flags ) ).toInt() ) & Qgis::SublayerFlag::SystemTable )
+    return false;
+
   if ( mFilterString.trimmed().isEmpty() )
     return true;
 
@@ -431,6 +438,17 @@ bool QgsProviderSublayerProxyModel::lessThan( const QModelIndex &source_left, co
   const QString rightName = sourceModel()->data( source_right, static_cast< int >( QgsProviderSublayerModel::Role::Name ) ).toString();
 
   return QString::localeAwareCompare( leftName, rightName ) < 0;
+}
+
+bool QgsProviderSublayerProxyModel::includeSystemTables() const
+{
+  return mIncludeSystemTables;
+}
+
+void QgsProviderSublayerProxyModel::setIncludeSystemTables( bool include )
+{
+  mIncludeSystemTables = include;
+  invalidateFilter();
 }
 
 QString QgsProviderSublayerProxyModel::filterString() const

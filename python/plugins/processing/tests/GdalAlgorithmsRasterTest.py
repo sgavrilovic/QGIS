@@ -27,11 +27,14 @@ import shutil
 import tempfile
 
 from qgis.core import (QgsProcessingContext,
+                       QgsProcessingException,
                        QgsProcessingFeedback,
                        QgsRectangle,
+                       QgsReferencedRectangle,
                        QgsRasterLayer,
                        QgsProject,
                        QgsProjUtils,
+                       QgsPointXY,
                        QgsCoordinateReferenceSystem)
 
 from qgis.testing import (start_app,
@@ -164,7 +167,6 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
 
             rlayer = QgsRasterLayer(fake_dem, "Fake dem")
             self.assertTrue(rlayer.isValid())
-
             self.assertEqual(rlayer.crs().authid(), 'EPSG:4326')
 
             project = QgsProject()
@@ -392,6 +394,7 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
         feedback = QgsProcessingFeedback()
         source = os.path.join(testDataPath, 'dem.tif')
         mask = os.path.join(testDataPath, 'polys.gml')
+        extent = QgsReferencedRectangle(QgsRectangle(1, 2, 3, 4), QgsCoordinateReferenceSystem('EPSG:4236'))
         alg = ClipRasterByMask()
         alg.initAlgorithm()
 
@@ -458,6 +461,16 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                  '-overwrite -of JPEG -cutline ' +
                  mask + ' -cl polys2 -crop_to_cutline -multi -nosrcalpha -wm 2048 -nomd ' +
                  source + ' ' +
+                 outdir + '/check.jpg'])
+            # with target extent value
+            self.assertEqual(
+                alg.getConsoleCommands({'INPUT': source,
+                                        'MASK': mask,
+                                        'TARGET_EXTENT': extent,
+                                        'OUTPUT': outdir + '/check.jpg'}, context, feedback),
+                ['gdalwarp',
+                 '-overwrite -te 1.0 2.0 3.0 4.0 -te_srs EPSG:4236 -of JPEG -cutline ' +
+                 mask + ' -cl polys2 -crop_to_cutline ' + source + ' ' +
                  outdir + '/check.jpg'])
 
     def testContourPolygon(self):
@@ -660,6 +673,17 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'OUTPUT': output}, context, feedback),
                 ['gdal_calc.py',
                  '--overwrite --calc "{}" --format JPEG --type Float32 -A {} --A_band 1 --outfile {}'.format(formula, source, output)])
+
+            if GdalUtils.version() >= 3030000:
+                extent = QgsReferencedRectangle(QgsRectangle(1, 2, 3, 4), QgsCoordinateReferenceSystem('EPSG:4326'))
+                self.assertEqual(
+                    alg.getConsoleCommands({'INPUT_A': source,
+                                            'BAND_A': 1,
+                                            'FORMULA': formula,
+                                            'PROJWIN': extent,
+                                            'OUTPUT': output}, context, feedback),
+                    ['gdal_calc.py',
+                     '--overwrite --calc "{}" --format JPEG --type Float32 --projwin 1.0 4.0 3.0 2.0 -A {} --A_band 1 --outfile {}'.format(formula, source, output)])
 
             # check that formula is not escaped and formula is returned as it is
             formula = 'A * 2'  # <--- add spaces in the formula
@@ -1206,6 +1230,18 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                  source + ' ' +
                  outdir + '/check.tif -of GTiff -b 1 -z 1.0 -s 1.0 -az 315.0 -alt 45.0 -q'])
 
+            # multidirectional and combined are mutually exclusive
+            self.assertRaises(
+                QgsProcessingException,
+                lambda: alg.getConsoleCommands({'INPUT': source,
+                                                'BAND': 1,
+                                                'Z_FACTOR': 5,
+                                                'SCALE': 2,
+                                                'AZIMUTH': 90,
+                                                'COMBINED': True,
+                                                'MULTIDIRECTIONAL': True,
+                                                'OUTPUT': outdir + '/check.tif'}, context, feedback))
+
     def testAspect(self):
         context = QgsProcessingContext()
         feedback = QgsProcessingFeedback()
@@ -1539,6 +1575,8 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
         feedback = QgsProcessingFeedback()
         source = os.path.join(testDataPath, 'polys.gml')
         sourceZ = os.path.join(testDataPath, 'pointsz.gml')
+        extent4326 = QgsReferencedRectangle(QgsRectangle(-1, -3, 10, 6), QgsCoordinateReferenceSystem('EPSG:4326'))
+        extent3857 = QgsReferencedRectangle(QgsRectangle(-111319.491, -334111.171, 1113194.908, 669141.057), QgsCoordinateReferenceSystem('EPSG:3857'))
         alg = rasterize()
         alg.initAlgorithm()
 
@@ -1614,6 +1652,27 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                  sourceZ + ' ' +
                  outdir + '/check.jpg'])
 
+            # with EXTENT in the same CRS as the input layer source
+            self.assertEqual(
+                alg.getConsoleCommands({'INPUT': source,
+                                        'FIELD': 'id',
+                                        'EXTENT': extent4326,
+                                        'OUTPUT': outdir + '/check.jpg'}, context, feedback),
+                ['gdal_rasterize',
+                 '-l polys2 -a id -ts 0.0 0.0 -te -1.0 -3.0 10.0 6.0 -ot Float32 -of JPEG ' +
+                 source + ' ' +
+                 outdir + '/check.jpg'])
+            # with EXTENT in a different CRS than that of the input layer source
+            self.assertEqual(
+                alg.getConsoleCommands({'INPUT': source,
+                                        'FIELD': 'id',
+                                        'EXTENT': extent3857,
+                                        'OUTPUT': outdir + '/check.jpg'}, context, feedback),
+                ['gdal_rasterize',
+                 '-l polys2 -a id -ts 0.0 0.0 -te -1.000000001857055 -2.9999999963940835 10.000000000604244 5.99999999960471 -ot Float32 -of JPEG ' +
+                 source + ' ' +
+                 outdir + '/check.jpg'])
+
     def testRasterizeOver(self):
         context = QgsProcessingContext()
         feedback = QgsProcessingFeedback()
@@ -1683,6 +1742,75 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                 ['gdal_rasterize',
                  '-l polys2 -burn 100.0 -i ' +
                  vector + ' ' + raster])
+
+    def testRasterizeOverRun(self):
+        # Check that rasterize over tools update QgsRasterLayer
+
+        context = QgsProcessingContext()
+        feedback = QgsProcessingFeedback()
+        source_vector = os.path.join(testDataPath, 'rasterize_zones.gml')
+        source_raster = os.path.join(testDataPath, 'dem.tif')
+
+        with tempfile.TemporaryDirectory() as outdir:
+            # fixed value
+            alg = rasterize_over_fixed_value()
+            alg.initAlgorithm()
+
+            test_dem = os.path.join(outdir, 'rasterize-fixed.tif')
+            shutil.copy(source_raster, test_dem)
+            self.assertTrue(os.path.exists(test_dem))
+
+            layer = QgsRasterLayer(test_dem, 'test')
+            self.assertTrue(layer.isValid())
+
+            val, ok = layer.dataProvider().sample(QgsPointXY(18.68704, 45.79568), 1)
+            self.assertEqual(val, 172.2267303466797)
+
+            project = QgsProject()
+            project.setFileName(os.path.join(outdir, 'rasterize-fixed.qgs'))
+            project.addMapLayer(layer)
+            self.assertEqual(project.count(), 1)
+
+            context.setProject(project)
+
+            alg.run({'INPUT': source_vector,
+                     'INPUT_RASTER': test_dem,
+                     'BURN': 200
+                     }, context, feedback)
+
+            val, ok = layer.dataProvider().sample(QgsPointXY(18.68704, 45.79568), 1)
+            self.assertTrue(ok)
+            self.assertEqual(val, 200.0)
+
+            # attribute value
+            alg = rasterize_over()
+            alg.initAlgorithm()
+
+            test_dem = os.path.join(outdir, 'rasterize-over.tif')
+            shutil.copy(source_raster, test_dem)
+            self.assertTrue(os.path.exists(test_dem))
+
+            layer = QgsRasterLayer(test_dem, 'test')
+            self.assertTrue(layer.isValid())
+
+            val, ok = layer.dataProvider().sample(QgsPointXY(18.68704, 45.79568), 1)
+            self.assertEqual(val, 172.2267303466797)
+
+            project = QgsProject()
+            project.setFileName(os.path.join(outdir, 'rasterize-over.qgs'))
+            project.addMapLayer(layer)
+            self.assertEqual(project.count(), 1)
+
+            context.setProject(project)
+
+            alg.run({'INPUT': source_vector,
+                     'INPUT_RASTER': test_dem,
+                     'FIELD': 'value'
+                     }, context, feedback)
+
+            val, ok = layer.dataProvider().sample(QgsPointXY(18.68704, 45.79568), 1)
+            self.assertTrue(ok)
+            self.assertEqual(val, 100.0)
 
     def testRetile(self):
         context = QgsProcessingContext()
@@ -1762,6 +1890,22 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'OUTPUT': outdir}, context, feedback),
                 ['gdal_retile.py',
                  '-ps 256 256 -overlap 0 -levels 1 -r near -ot Float32 -v -tileIndex tindex.shp -targetDir {} '.format(outdir) +
+                 source])
+
+            self.assertEqual(
+                alg.getConsoleCommands({'INPUT': [source],
+                                        'ONLY_PYRAMIDS': True,
+                                        'OUTPUT': outdir}, context, feedback),
+                ['gdal_retile.py',
+                 '-ps 256 256 -overlap 0 -levels 1 -r near -ot Float32 -pyramidOnly -targetDir {} '.format(outdir) +
+                 source])
+
+            self.assertEqual(
+                alg.getConsoleCommands({'INPUT': [source],
+                                        'DIR_FOR_ROW': True,
+                                        'OUTPUT': outdir}, context, feedback),
+                ['gdal_retile.py',
+                 '-ps 256 256 -overlap 0 -levels 1 -r near -ot Float32 -useDirForEachRow -targetDir {} '.format(outdir) +
                  source])
 
     def testWarp(self):
@@ -2004,7 +2148,7 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
             cmd[1] = t[:t.find('--optfile') + 10] + t[t.find('mergeInputFiles.txt'):]
             self.assertEqual(cmd,
                              ['gdal_merge.py',
-                              '-a_nodata -9999 -ot Float32 -of GTiff ' +
+                              '-a_nodata -9999.0 -ot Float32 -of GTiff ' +
                               '-o ' + outdir + '/check.tif ' +
                               '--optfile mergeInputFiles.txt'])
 
@@ -2374,8 +2518,7 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'OUTPUT': outsource}, context, feedback),
                 ['gdal_polygonize.py',
                  source + ' ' +
-                 outsource + ' ' +
-                 '-b 1 -f "ESRI Shapefile" check DN'
+                 '-b 1 -f "ESRI Shapefile"' + ' ' + outsource + ' ' + 'check DN'
                  ])
 
             self.assertEqual(
@@ -2386,8 +2529,7 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'OUTPUT': outsource}, context, feedback),
                 ['gdal_polygonize.py',
                  source + ' ' +
-                 outsource + ' ' +
-                 '-b 1 -f "ESRI Shapefile" check VAL'
+                 '-b 1 -f "ESRI Shapefile"' + ' ' + outsource + ' ' + 'check VAL'
                  ])
 
             # 8 connectedness
@@ -2398,9 +2540,8 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'EIGHT_CONNECTEDNESS': True,
                                         'OUTPUT': outsource}, context, feedback),
                 ['gdal_polygonize.py',
-                 source + ' ' +
-                 outsource + ' ' +
-                 '-8 -b 1 -f "ESRI Shapefile" check DN'
+                 '-8' + ' ' + source + ' ' +
+                 '-b 1 -f "ESRI Shapefile"' + ' ' + outsource + ' ' + 'check DN'
                  ])
 
             # custom output format
@@ -2413,8 +2554,7 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'OUTPUT': outsource}, context, feedback),
                 ['gdal_polygonize.py',
                  source + ' ' +
-                 outsource + ' ' +
-                 '-b 1 -f "GPKG" check DN'
+                 '-b 1 -f "GPKG"' + ' ' + outsource + ' ' + 'check DN'
                  ])
 
             # additional parameters
@@ -2425,9 +2565,8 @@ class TestGdalRasterAlgorithms(unittest.TestCase, AlgorithmsTestBase.AlgorithmsT
                                         'EXTRA': '-nomask -q',
                                         'OUTPUT': outsource}, context, feedback),
                 ['gdal_polygonize.py',
-                 source + ' ' +
-                 outsource + ' ' +
-                 '-b 1 -f "GPKG" -nomask -q check DN'
+                 '-nomask -q' + ' ' + source + ' ' +
+                 '-b 1 -f "GPKG"' + ' ' + outsource + ' ' + 'check DN'
                  ])
 
     def testGdalPansharpen(self):

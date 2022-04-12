@@ -31,6 +31,7 @@
 #include "qgsvectordataprovider.h"
 #include "qgsvectorlayer.h"
 #include "qgsabstractgeometry.h"
+#include "qgscoordinatetransform.h"
 
 #include <QProgressDialog>
 
@@ -414,7 +415,7 @@ Qgis::VectorExportResult QgsVectorLayerExporter::exportLayer( QgsVectorLayer *la
     {
       if ( errorMessage )
       {
-        *errorMessage += '\n' + QObject::tr( "Stopping after %1 errors" ).arg( writer->errorCount() );
+        *errorMessage += '\n' + QObject::tr( "Stopping after %n error(s)", nullptr, writer->errorCount() );
       }
       break;
     }

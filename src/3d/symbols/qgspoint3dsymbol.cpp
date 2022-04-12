@@ -24,6 +24,8 @@
 #include "qgs3dexportobject.h"
 #include "qgs3dsceneexporter.h"
 #include "qgsmarkersymbol.h"
+#include "qgsvectorlayer.h"
+#include "qgsvectorlayerelevationproperties.h"
 
 QgsAbstract3DSymbol *QgsPoint3DSymbol::clone() const
 {
@@ -119,6 +121,15 @@ QList<QgsWkbTypes::GeometryType> QgsPoint3DSymbol::compatibleGeometryTypes() con
   return QList< QgsWkbTypes::GeometryType >() << QgsWkbTypes::PointGeometry;
 }
 
+void QgsPoint3DSymbol::setDefaultPropertiesFromLayer( const QgsVectorLayer *layer )
+{
+  const QgsVectorLayerElevationProperties *props = qgis::down_cast< const QgsVectorLayerElevationProperties * >( const_cast< QgsVectorLayer *>( layer )->elevationProperties() );
+
+  mAltClamping = props->clamping();
+  mTransform.data()[13] = static_cast< float >( props->zOffset() );
+  mShapeProperties[QStringLiteral( "length" )] = props->extrusionEnabled() ? static_cast< float>( props->extrusionHeight() ) : 0.0f;
+}
+
 QgsPoint3DSymbol::Shape QgsPoint3DSymbol::shapeFromString( const QString &shape )
 {
   if ( shape ==  QStringLiteral( "sphere" ) )
@@ -211,8 +222,11 @@ bool QgsPoint3DSymbol::exportGeometries( Qgs3DSceneExporter *exporter, Qt3DCore:
   else if ( shape() == QgsPoint3DSymbol::Billboard )
   {
     Qgs3DExportObject *obj = exporter->processPoints( entity, objectNamePrefix );
-    if ( obj != nullptr ) exporter->mObjects << obj;
-    if ( obj != nullptr ) return true;
+    if ( obj != nullptr )
+    {
+      exporter->mObjects << obj;
+      return true;
+    }
   }
   else
   {

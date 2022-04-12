@@ -40,7 +40,7 @@ QgsOgrSourceSelect::QgsOgrSourceSelect( QWidget *parent, Qt::WindowFlags fl, Qgs
   : QgsAbstractDataSourceWidget( parent, fl, widgetMode )
 {
   setupUi( this );
-  QgsGui::instance()->enableAutoGeometryRestore( this );
+  QgsGui::enableAutoGeometryRestore( this );
 
   connect( radioSrcFile, &QRadioButton::toggled, this, &QgsOgrSourceSelect::radioSrcFile_toggled );
   connect( radioSrcDirectory, &QRadioButton::toggled, this, &QgsOgrSourceSelect::radioSrcDirectory_toggled );
@@ -689,6 +689,11 @@ void QgsOgrSourceSelect::fillOpenOptions()
     if ( bIsGPKG && strstr( pszOpenOptionList, "scope=" ) == nullptr &&
          !EQUAL( pszOptionName, "LIST_ALL_TABLES" ) &&
          !EQUAL( pszOptionName, "PRELUDE_STATEMENTS" ) )
+      continue;
+
+    // The NOLOCK option is automatically set by the OGR provider. Do not
+    // expose it
+    if ( bIsGPKG && EQUAL( pszOptionName, "NOLOCK" ) )
       continue;
 
     // Do not list database options already asked in the database dialog

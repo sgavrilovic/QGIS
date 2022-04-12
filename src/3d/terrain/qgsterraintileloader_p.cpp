@@ -22,6 +22,7 @@
 #include "qgsterraintextureimage_p.h"
 #include "qgsterraintexturegenerator_p.h"
 #include "qgsterraintileentity_p.h"
+#include "qgscoordinatetransform.h"
 
 #include <Qt3DRender/QTexture>
 
@@ -50,7 +51,9 @@ QgsTerrainTileLoader::QgsTerrainTileLoader( QgsTerrainEntity *terrain, QgsChunkN
 
   const QgsChunkNodeId nodeId = node->tileId();
   const QgsRectangle extentTerrainCrs = map.terrainGenerator()->tilingScheme().tileToExtent( nodeId );
-  mExtentMapCrs = terrain->terrainToMapTransform().transformBoundingBox( extentTerrainCrs );
+  QgsCoordinateTransform transform = terrain->terrainToMapTransform();
+  transform.setBallparkTransformsAreAppropriate( true );
+  mExtentMapCrs = transform.transformBoundingBox( extentTerrainCrs );
   mTileDebugText = nodeId.text();
 }
 
@@ -71,7 +74,6 @@ void QgsTerrainTileLoader::createTextureComponent( QgsTerrainTileEntity *entity,
     {
       Qt3DExtras::QDiffuseSpecularMaterial *diffuseMapMaterial = new Qt3DExtras::QDiffuseSpecularMaterial;
       diffuseMapMaterial->setDiffuse( QVariant::fromValue( texture ) );
-      material = diffuseMapMaterial;
       diffuseMapMaterial->setAmbient( shadingMaterial.ambient() );
       diffuseMapMaterial->setSpecular( shadingMaterial.specular() );
       diffuseMapMaterial->setShininess( shadingMaterial.shininess() );

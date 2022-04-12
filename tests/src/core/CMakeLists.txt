@@ -40,6 +40,7 @@ set(TESTS
  testqgsconnectionpool.cpp
  testqgscoordinatereferencesystemregistry.cpp
  testqgscoordinatetransform.cpp
+ testqgscoordinateutils.cpp
  testqgscopyfiletask.cpp
  testqgscredentials.cpp
  testqgscurve.cpp
@@ -53,6 +54,7 @@ set(TESTS
  testqgsexpression.cpp
  testqgsexpressioncontext.cpp
  testqgsfeature.cpp
+ testqgsfeaturerequest.cpp
  testqgsfield.cpp
  testqgsfields.cpp
  testqgsfilledmarker.cpp
@@ -61,9 +63,7 @@ set(TESTS
  testqgsgdalprovider.cpp
  testqgsgdalutils.cpp
  testqgsgenericspatialindex.cpp
- testqgsgeometry.cpp
  testqgsgeometryimport.cpp
- testqgsgeometryutils.cpp
  testqgsgeonodeconnection.cpp
  testqgsgeopdfexport.cpp
  testqgsgml.cpp
@@ -71,6 +71,7 @@ set(TESTS
  testqgsgraduatedsymbolrenderer.cpp
  testqgshistogram.cpp
  testqgshstoreutils.cpp
+ testqgshttpheaders.cpp
  testqgsimagecache.cpp
  testqgsimageoperation.cpp
  testqgsinternalgeometryengine.cpp
@@ -135,8 +136,8 @@ set(TESTS
  testqgspainteffect.cpp
  testqgspainteffectregistry.cpp
  testqgspallabeling.cpp
- testqgspoint.cpp
  testqgspointcloudattribute.cpp
+ testqgspointcloudexpression.cpp
  testqgspointcloudrendererregistry.cpp
  testqgspointlocator.cpp
  testqgspointpatternfillsymbol.cpp
@@ -157,7 +158,6 @@ set(TESTS
  testqgsrasterlayertemporalproperties.cpp
  testqgsrastermarker.cpp
  testqgsrastersublayer.cpp
- testqgsrectangle.cpp
  testqgsrelationreferencefieldformatter.cpp
  testqgsrenderers.cpp
  testqgsrulebasedrenderer.cpp
@@ -167,11 +167,13 @@ set(TESTS
  testqgssettingsregistry.cpp
  testqgsshapeburst.cpp
  testqgssimplemarker.cpp
+ testqgssimplifymethod.cpp
  testqgssnappingutils.cpp
  testqgsspatialindex.cpp
  testqgsspatialindexkdbush.cpp
  testqgssqliteexpressioncompiler.cpp
  testqgssqliteutils.cpp
+ testqgsrelation.cpp
  testqgsstatisticalsummary.cpp
  testqgsstoredexpressionmanager.cpp
  testqgsstringutils.cpp
@@ -196,7 +198,10 @@ set(TESTS
  testqgsvectorlayerjoinbuffer.cpp
  testqgsvectorlayerutils.cpp
  testqgsvectortilelayer.cpp
+ testqgsvectortileconnection.cpp
+ testqgsvectortileutils.cpp
  testqgsvectortilewriter.cpp
+ testqgstiles.cpp
  testqgsweakrelation.cpp
  testqgsziputils.cpp
  testqobjectuniqueptr.cpp
@@ -222,3 +227,5 @@ add_qgis_test(testqgscoordinatereferencesystem.cpp MODULE core LINKEDLIBRARIES q
 if (ENABLE_PGTEST)
   SET_TESTS_PROPERTIES(test_core_vectorlayerjoinbuffer PROPERTIES LABELS "POSTGRES")
 endif()
+
+add_subdirectory(geometry)

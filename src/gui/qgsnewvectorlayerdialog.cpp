@@ -28,6 +28,8 @@
 #include "qgsogrprovider.h"
 #include "qgsgui.h"
 #include "qgsiconutils.h"
+#include "qgsfileutils.h"
+#include "qgsvariantutils.h"
 
 #include <QPushButton>
 #include <QComboBox>
@@ -38,7 +40,7 @@ QgsNewVectorLayerDialog::QgsNewVectorLayerDialog( QWidget *parent, Qt::WindowFla
   : QDialog( parent, fl )
 {
   setupUi( this );
-  QgsGui::instance()->enableAutoGeometryRestore( this );
+  QgsGui::enableAutoGeometryRestore( this );
 
   connect( mAddAttributeButton, &QToolButton::clicked, this, &QgsNewVectorLayerDialog::mAddAttributeButton_clicked );
   connect( mRemoveAttributeButton, &QToolButton::clicked, this, &QgsNewVectorLayerDialog::mRemoveAttributeButton_clicked );
@@ -49,10 +51,10 @@ QgsNewVectorLayerDialog::QgsNewVectorLayerDialog( QWidget *parent, Qt::WindowFla
   mAddAttributeButton->setIcon( QgsApplication::getThemeIcon( QStringLiteral( "/mActionNewAttribute.svg" ) ) );
   mRemoveAttributeButton->setIcon( QgsApplication::getThemeIcon( QStringLiteral( "/mActionDeleteAttribute.svg" ) ) );
 
-  mTypeBox->addItem( QgsApplication::getThemeIcon( QStringLiteral( "/mIconFieldText.svg" ) ), tr( "Text Data" ), "String" );
-  mTypeBox->addItem( QgsApplication::getThemeIcon( QStringLiteral( "/mIconFieldInteger.svg" ) ), tr( "Whole Number" ), "Integer" );
-  mTypeBox->addItem( QgsApplication::getThemeIcon( QStringLiteral( "/mIconFieldFloat.svg" ) ), tr( "Decimal Number" ), "Real" );
-  mTypeBox->addItem( QgsApplication::getThemeIcon( QStringLiteral( "/mIconFieldDate.svg" ) ), tr( "Date" ), "Date" );
+  mTypeBox->addItem( QgsFields::iconForFieldType( QVariant::String ), QgsVariantUtils::typeToDisplayString( QVariant::String ), "String" );
+  mTypeBox->addItem( QgsFields::iconForFieldType( QVariant::Int ), QgsVariantUtils::typeToDisplayString( QVariant::Int ), "Integer" );
+  mTypeBox->addItem( QgsFields::iconForFieldType( QVariant::Double ), QgsVariantUtils::typeToDisplayString( QVariant::Double ), "Real" );
+  mTypeBox->addItem( QgsFields::iconForFieldType( QVariant::Date ), QgsVariantUtils::typeToDisplayString( QVariant::Date ), "Date" );
 
   mWidth->setValidator( new QIntValidator( 1, 255, this ) );
   mPrecision->setValidator( new QIntValidator( 0, 15, this ) );
@@ -109,21 +111,9 @@ QgsNewVectorLayerDialog::QgsNewVectorLayerDialog( QWidget *parent, Qt::WindowFla
   mAttributeView->addTopLevelItem( new QTreeWidgetItem( QStringList() << QStringLiteral( "id" ) << QStringLiteral( "Integer" ) << QStringLiteral( "10" ) << QString() ) );
   connect( mNameEdit, &QLineEdit::textChanged, this, &QgsNewVectorLayerDialog::nameChanged );
   connect( mAttributeView, &QTreeWidget::itemSelectionChanged, this, &QgsNewVectorLayerDialog::selectionChanged );
-  connect( mGeometryTypeBox, static_cast<void( QComboBox::* )( int )>( &QComboBox::currentIndexChanged ), this, [ = ]( int index )
+  connect( mGeometryTypeBox, static_cast<void( QComboBox::* )( int )>( &QComboBox::currentIndexChanged ), this, [ = ]( int )
   {
-    QString fileName = mFileName->filePath();
-    if ( !fileName.isEmpty() )
-    {
-      if ( index == 0 )
-      {
-        fileName = fileName.replace( fileName.lastIndexOf( QLatin1String( ".shp" ), -1, Qt::CaseInsensitive ), 4, QLatin1String( ".dbf" ) );
-      }
-      else
-      {
-        fileName = fileName.replace( fileName.lastIndexOf( QLatin1String( ".dbf" ), -1, Qt::CaseInsensitive ), 4, QLatin1String( ".shp" ) );
-      }
-      mFileName->setFilePath( fileName );
-    }
+    updateExtension();
     checkOk();
   } );
 
@@ -293,6 +283,39 @@ QString QgsNewVectorLayerDialog::runAndCreateLayer( QWidget *parent, QString *pE
   return res;
 }
 
+void QgsNewVectorLayerDialog::updateExtension()
+{
+  QString fileName = filename();
+  const QString fileformat = selectedFileFormat();
+  const QgsWkbTypes::Type geometrytype = selectedType();
+  if ( fileformat == QLatin1String( "ESRI Shapefile" ) )
+  {
+    if ( geometrytype != QgsWkbTypes::NoGeometry )
+    {
+      fileName = fileName.replace( fileName.lastIndexOf( QLatin1String( ".dbf" ), -1, Qt::CaseInsensitive ), 4, QLatin1String( ".shp" ) );
+      fileName = QgsFileUtils::ensureFileNameHasExtension( fileName, { QStringLiteral( "shp" ) } );
+    }
+    else
+    {
+      fileName = fileName.replace( fileName.lastIndexOf( QLatin1String( ".shp" ), -1, Qt::CaseInsensitive ), 4, QLatin1String( ".dbf" ) );
+      fileName = QgsFileUtils::ensureFileNameHasExtension( fileName, { QStringLiteral( "dbf" ) } );
+    }
+  }
+  setFilename( fileName );
+
+}
+
+void QgsNewVectorLayerDialog::accept()
+{
+  updateExtension();
+
+  if ( QFile::exists( filename() ) && QMessageBox::warning( this, tr( "New ShapeFile Layer" ), tr( "The layer already exists. Are you sure you want to overwrite the existing file?" ),
+       QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel ) != QMessageBox::Yes )
+    return;
+
+  QDialog::accept();
+}
+
 QString QgsNewVectorLayerDialog::execAndCreateLayer( QString &errorMessage, QWidget *parent, const QString &initialPath, QString *encoding, const QgsCoordinateReferenceSystem &crs )
 {
   errorMessage.clear();
@@ -305,12 +328,10 @@ QString QgsNewVectorLayerDialog::execAndCreateLayer( QString &errorMessage, QWid
     return QString();
   }
 
-  if ( QFile::exists( geomDialog.filename() ) && QMessageBox::warning( parent, tr( "New ShapeFile Layer" ), tr( "The layer already exists. Are you sure you want to overwrite the existing file?" ),
-       QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel ) != QMessageBox::Yes )
-    return QString();
-
-  const QgsWkbTypes::Type geometrytype = geomDialog.selectedType();
   const QString fileformat = geomDialog.selectedFileFormat();
+  const QgsWkbTypes::Type geometrytype = geomDialog.selectedType();
+  QString fileName = geomDialog.filename();
+
   const QString enc = geomDialog.selectedFileEncoding();
   QgsDebugMsg( QStringLiteral( "New file format will be: %1" ).arg( fileformat ) );
 
@@ -318,17 +339,6 @@ QString QgsNewVectorLayerDialog::execAndCreateLayer( QString &errorMessage, QWid
   geomDialog.attributes( attributes );
 
   QgsSettings settings;
-  QString fileName = geomDialog.filename();
-  if ( fileformat == QLatin1String( "ESRI Shapefile" ) && ( geometrytype != QgsWkbTypes::NoGeometry && !fileName.endsWith( QLatin1String( ".shp" ), Qt::CaseInsensitive ) ) )
-    fileName += QLatin1String( ".shp" );
-  else if ( fileformat == QLatin1String( "ESRI Shapefile" ) && ( geometrytype == QgsWkbTypes::NoGeometry && !fileName.endsWith( QLatin1String( ".dbf" ), Qt::CaseInsensitive ) ) )
-  {
-    if ( fileName.endsWith( QLatin1String( ".shp" ), Qt::CaseInsensitive ) )
-      fileName = fileName.replace( fileName.lastIndexOf( QLatin1String( ".shp" ), -1, Qt::CaseInsensitive ), 4, QLatin1String( ".dbf" ) );
-    else
-      fileName += QLatin1String( ".dbf" );
-  }
-
   settings.setValue( QStringLiteral( "UI/lastVectorFileFilterDir" ), QFileInfo( fileName ).absolutePath() );
   settings.setValue( QStringLiteral( "UI/encoding" ), enc );
 

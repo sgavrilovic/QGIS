@@ -22,7 +22,7 @@ QgsMapLayerStyleCategoriesModel::QgsMapLayerStyleCategoriesModel( QgsMapLayerTyp
   switch ( type )
   {
     case QgsMapLayerType::VectorLayer:
-      mCategoryList = qgsEnumMap<QgsMapLayer::StyleCategory>().keys();
+      mCategoryList = qgsEnumList<QgsMapLayer::StyleCategory>();
       break;
 
     case QgsMapLayerType::VectorTileLayer:
@@ -34,6 +34,7 @@ QgsMapLayerStyleCategoriesModel::QgsMapLayerStyleCategoriesModel( QgsMapLayerTyp
     case QgsMapLayerType::PluginLayer:
     case QgsMapLayerType::MeshLayer:
     case QgsMapLayerType::PointCloudLayer:
+    case QgsMapLayerType::GroupLayer:
       // not yet handled by the model
       break;
   }

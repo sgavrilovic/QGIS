@@ -1255,7 +1255,36 @@ class TestQgsServerWMSGetMap(QgsServerTestBase):
         r, h = self._result(self._execute_request(qs))
         self._img_diff_error(r, h, "WMS_GetMap_Highlight_Point")
 
+    def test_wms_getmap_highlight_point_label_options(self):
+        # checks HIGHLIGHT_LABEL_ROTATION, HIGHLIGHT_LABEL_HORIZONTAL_ALIGNMENT, HIGHLIGHT_LABEL_VERTICAL_ALIGNMENT
+        qs = "?" + "&".join(["%s=%s" % i for i in list({
+            "MAP": urllib.parse.quote(self.projectPath),
+            "SERVICE": "WMS",
+            "VERSION": "1.1.1",
+            "REQUEST": "GetMap",
+            "LAYERS": "Country_Labels",
+            "HIGHLIGHT_GEOM": "POINT(-6250000 8055310)",
+            "HIGHLIGHT_SYMBOL": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:ogc=\"http://www.opengis.net/ogc\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" version=\"1.1.0\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xsi:schemaLocation=\"http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd\" xmlns:se=\"http://www.opengis.net/se\"><UserStyle><se:FeatureTypeStyle><se:Rule><se:PointSymbolizer><se:Graphic><se:Mark><se:WellKnownName>circle</se:WellKnownName><se:Stroke><se:SvgParameter name=\"stroke\">%23ff0000</se:SvgParameter><se:SvgParameter name=\"stroke-opacity\">1</se:SvgParameter><se:SvgParameter name=\"stroke-width\">7.5</se:SvgParameter></se:Stroke><se:Fill><se:SvgParameter name=\"fill\">%237bdcb5</se:SvgParameter><se:SvgParameter name=\"fill-opacity\">1</se:SvgParameter></se:Fill></se:Mark><se:Size>28.4</se:Size></se:Graphic></se:PointSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></StyledLayerDescriptor>",
+            "HIGHLIGHT_LABELSTRING": "Highlight Point :)",
+            "HIGHLIGHT_LABELSIZE": "16",
+            "HIGHLIGHT_LABELCOLOR": "%2300FF0000",
+            "HIGHLIGHT_LABELBUFFERCOLOR": "%232300FF00",
+            "HIGHLIGHT_LABELBUFFERSIZE": "1.2",
+            "HIGHLIGHT_LABEL_ROTATION": "45",
+            "HIGHLIGHT_LABEL_HORIZONTAL_ALIGNMENT": "center",
+            "HIGHLIGHT_LABEL_VERTICAL_ALIGNMENT": "half",
+            "STYLES": "",
+            "FORMAT": "image/png",
+            "BBOX": "-16817707,-4710778,5696513,14587125",
+            "HEIGHT": "500",
+            "WIDTH": "500",
+            "CRS": "EPSG:3857"
+        }.items())])
+        r, h = self._result(self._execute_request(qs))
+        self._img_diff_error(r, h, "WMS_GetMap_Highlight_Point_Label_Options")
+
     # TODO make Server Getmap work with SLD Highlight feature and enable test
+
     def test_wms_getmap_highlight_line(self):
         # checks SLD stroke-width works for Lines See issue 19795 comments
         qs = "?" + "&".join(["%s=%s" % i for i in list({
@@ -1805,6 +1834,25 @@ class TestQgsServerWMSGetMap(QgsServerTestBase):
 
         r, h = self._result(self._execute_request(qs))
         self._img_diff_error(r, h, "WMS_GetMap_Tiled_Labels_True")
+
+        # Check with rotated labels and tiled=true
+        qs = "?" + "&".join(["%s=%s" % i for i in list({
+            "MAP": urllib.parse.quote(
+                os.path.join(self.testdata_path, 'wms_tile_buffer.qgs')),
+            "SERVICE": "WMS",
+            "VERSION": "1.3.0",
+            "REQUEST": "GetMap",
+            "BBOX": "317914,6163276,327923,6173244",
+            "CRS": "EPSG:3857",
+            "WIDTH": "512",
+            "HEIGHT": "512",
+            "LAYERS": "wms_tile_buffer_labels_rotated",
+            "FORMAT": "image/png",
+            "TILED": "true"
+        }.items())])
+
+        r, h = self._result(self._execute_request(qs))
+        self._img_diff_error(r, h, "WMS_GetMap_Tiled_Rotated_Labels_True")
 
     @unittest.skipIf(os.getenv('QGIS_CONTINUOUS_INTEGRATION_RUN'), "This tests fails on GH workflow")
     def test_mode8bit_with_transparency(self):

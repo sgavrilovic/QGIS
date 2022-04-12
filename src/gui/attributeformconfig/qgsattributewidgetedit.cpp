@@ -40,12 +40,13 @@ QgsAttributeWidgetEdit::QgsAttributeWidgetEdit( QTreeWidgetItem *item, QWidget *
       mSpecificEditWidget = editWidget;
       layout->addWidget( mSpecificEditWidget );
       mWidgetSpecificConfigGroupBox->setLayout( layout );
-      mWidgetSpecificConfigGroupBox->setTitle( editWidget->title() );
+      mWidgetSpecificConfigGroupBox->setTitle( QgsAttributeWidgetRelationEditWidget::title() );
 
     }
     break;
 
     case QgsAttributesFormProperties::DnDTreeItemData::Field:
+    case QgsAttributesFormProperties::DnDTreeItemData::Action:
     case QgsAttributesFormProperties::DnDTreeItemData::Container:
     case QgsAttributesFormProperties::DnDTreeItemData::QmlWidget:
     case QgsAttributesFormProperties::DnDTreeItemData::HtmlWidget:
@@ -75,6 +76,7 @@ void QgsAttributeWidgetEdit::updateItemData()
     }
     break;
 
+    case QgsAttributesFormProperties::DnDTreeItemData::Action:
     case QgsAttributesFormProperties::DnDTreeItemData::Field:
     case QgsAttributesFormProperties::DnDTreeItemData::Container:
     case QgsAttributesFormProperties::DnDTreeItemData::QmlWidget:

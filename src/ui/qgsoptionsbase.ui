@@ -3412,6 +3412,13 @@
                    </layout>
                   </item>
                   <item>
+                   <widget class="QCheckBox" name="mShowFeatureCountByDefaultCheckBox">
+                    <property name="text">
+                     <string>Show feature count for newly added layers</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
                    <widget class="QCheckBox" name="cbxLegendClassifiers">
                     <property name="text">
                      <string>Display classification attribute in layer titles</string>
@@ -3649,7 +3656,7 @@
                   <item row="0" column="0">
                    <widget class="QCheckBox" name="mRespectScreenDpiCheckBox">
                     <property name="toolTip">
-                     <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If respect screen DPI is activated, symbology on the map canvas will be rendered with appropriate screen DPI. This means that a symbol with 1mm size will be rendered with 1mm size on every screen (provided it is configured correctly at the system).&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Note:&lt;/span&gt;&lt;/p&gt;&lt;p&gt;This is only possible since QGIS 3.20.&lt;/p&gt;&lt;p&gt;Any earlier version of QGIS will render symbology on the map canvas smaller on HiDPI screens.&lt;/p&gt;&lt;p&gt;Requires a restart&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                     <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If respect screen DPI is activated, symbology on the map canvas will be rendered with appropriate screen DPI. This means that a symbol with 1mm size will be rendered with 1mm size on every screen (provided it is configured correctly at the system).&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Note:&lt;/span&gt;&lt;/p&gt;&lt;p&gt;If disabled, this will activate legacy behavior (QGIS &lt;= 3.20) and will render symbology on the map canvas smaller on HiDPI screens.&lt;/p&gt;&lt;p&gt;Requires a restart&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                     </property>
                     <property name="text">
                      <string>Respect screen DPI</string>
@@ -4672,9 +4679,9 @@ The bigger the number, the faster zooming with the mouse wheel will be.</string>
                    </widget>
                   </item>
                   <item row="1" column="0">
-                   <widget class="QLabel" name="mDefaultSnapModeLabel">
+                   <widget class="QLabel" name="mDefaultSnapTypeLabel">
                     <property name="text">
-                     <string>Default snap mode</string>
+                     <string>Default snapping type</string>
                     </property>
                    </widget>
                   </item>
@@ -4692,7 +4699,7 @@ The bigger the number, the faster zooming with the mouse wheel will be.</string>
                    </spacer>
                   </item>
                   <item row="1" column="2">
-                   <widget class="QComboBox" name="mDefaultSnapModeComboBox">
+                   <widget class="QComboBox" name="mDefaultSnapTypeComboBox">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -6229,6 +6236,7 @@ p, li { white-space: pre-wrap; }
   <tabstop>pbnSelectionColor</tabstop>
   <tabstop>pbnCanvasColor</tabstop>
   <tabstop>cmbLegendDoubleClickAction</tabstop>
+  <tabstop>mShowFeatureCountByDefaultCheckBox</tabstop>
   <tabstop>cbxLegendClassifiers</tabstop>
   <tabstop>mLegendGraphicResolutionSpinBox</tabstop>
   <tabstop>mLegendSymbolMinimumSizeSpinBox</tabstop>
@@ -6275,7 +6283,7 @@ p, li { white-space: pre-wrap; }
   <tabstop>mFillColorToolButton</tabstop>
   <tabstop>mLineGhostCheckBox</tabstop>
   <tabstop>mSnappingEnabledDefault</tabstop>
-  <tabstop>mDefaultSnapModeComboBox</tabstop>
+  <tabstop>mDefaultSnapTypeComboBox</tabstop>
   <tabstop>mDefaultSnappingToleranceSpinBox</tabstop>
   <tabstop>mDefaultSnappingToleranceComboBox</tabstop>
   <tabstop>mSearchRadiusVertexEditSpinBox</tabstop>

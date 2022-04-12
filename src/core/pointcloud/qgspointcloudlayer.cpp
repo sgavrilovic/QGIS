@@ -32,6 +32,9 @@
 #include "qgsmaplayerlegend.h"
 #include "qgsxmlutils.h"
 #include "qgsmaplayerfactory.h"
+#include "qgsmaplayerutils.h"
+#include "qgsabstractpointcloud3drenderer.h"
+
 #include <QUrl>
 
 QgsPointCloudLayer::QgsPointCloudLayer( const QString &uri,
@@ -56,6 +59,7 @@ QgsPointCloudLayer::QgsPointCloudLayer( const QString &uri,
   }
 
   setLegend( QgsMapLayerLegend::defaultPointCloudLegend( this ) );
+  connect( this, &QgsPointCloudLayer::subsetStringChanged, this, &QgsMapLayer::configChanged );
 }
 
 QgsPointCloudLayer::~QgsPointCloudLayer() = default;
@@ -69,6 +73,9 @@ QgsPointCloudLayer *QgsPointCloudLayer::clone() const
 
   QgsPointCloudLayer *layer = new QgsPointCloudLayer( source(), name(), mProviderKey, options );
   QgsMapLayer::clone( layer );
+
+  layer->mElevationProperties = mElevationProperties->clone();
+  layer->mElevationProperties->setParent( layer );
 
   if ( mRenderer )
     layer->setRenderer( mRenderer->clone() );
@@ -130,6 +137,10 @@ bool QgsPointCloudLayer::readXml( const QDomNode &layerNode, QgsReadWriteContext
       flags |= QgsDataProvider::FlagTrustDataSource;
     }
     setDataSource( mDataSource, mLayerName, mProviderKey, providerOptions, flags );
+    const QDomNode subset = layerNode.namedItem( QStringLiteral( "subset" ) );
+    const QString subsetText = subset.toElement().text();
+    if ( !subsetText.isEmpty() )
+      setSubsetString( subsetText );
   }
 
   if ( !isValid() )
@@ -150,6 +161,13 @@ bool QgsPointCloudLayer::writeXml( QDomNode &layerNode, QDomDocument &doc, const
   QDomElement mapLayerNode = layerNode.toElement();
   mapLayerNode.setAttribute( QStringLiteral( "type" ), QgsMapLayerFactory::typeToString( QgsMapLayerType::PointCloudLayer ) );
 
+  if ( !subsetString().isEmpty() )
+  {
+    QDomElement subset = doc.createElement( QStringLiteral( "subset" ) );
+    const QDomText subsetText = doc.createTextNode( subsetString() );
+    subset.appendChild( subsetText );
+    layerNode.appendChild( subset );
+  }
   if ( mDataProvider )
   {
     QDomElement provider  = doc.createElement( QStringLiteral( "provider" ) );
@@ -182,6 +200,14 @@ bool QgsPointCloudLayer::readStyle( const QDomNode &node, QString &, QgsReadWrit
 {
   bool result = true;
 
+  if ( categories.testFlag( Symbology3D ) )
+  {
+    bool ok;
+    bool sync = node.attributes().namedItem( QStringLiteral( "sync3DRendererTo2DRenderer" ) ).nodeValue().toInt( &ok );
+    if ( ok )
+      setSync3DRendererTo2DRenderer( sync );
+  }
+
   if ( categories.testFlag( Symbology ) )
   {
     QDomElement rendererElement = node.firstChildElement( QStringLiteral( "renderer" ) );
@@ -200,7 +226,7 @@ bool QgsPointCloudLayer::readStyle( const QDomNode &node, QString &, QgsReadWrit
     // make sure layer has a renderer - if none exists, fallback to a default renderer
     if ( !mRenderer )
     {
-      setRenderer( QgsApplication::pointCloudRendererRegistry()->defaultRenderer( mDataProvider.get() ) );
+      setRenderer( QgsPointCloudRendererRegistry::defaultRenderer( mDataProvider.get() ) );
     }
   }
 
@@ -259,6 +285,11 @@ bool QgsPointCloudLayer::writeStyle( QDomNode &node, QDomDocument &doc, QString 
 {
   QDomElement mapLayerNode = node.toElement();
 
+  if ( categories.testFlag( Symbology3D ) )
+  {
+    mapLayerNode.setAttribute( QStringLiteral( "sync3DRendererTo2DRenderer" ), mSync3DRendererTo2DRenderer ? 1 : 0 );
+  }
+
   if ( categories.testFlag( Symbology ) )
   {
     if ( mRenderer )
@@ -295,7 +326,6 @@ bool QgsPointCloudLayer::writeStyle( QDomNode &node, QDomDocument &doc, QString 
     mapLayerNode.setAttribute( QStringLiteral( "maxScale" ), maximumScale() );
     mapLayerNode.setAttribute( QStringLiteral( "minScale" ), minimumScale() );
   }
-
   return true;
 }
 
@@ -380,7 +410,7 @@ void QgsPointCloudLayer::setDataSourcePrivate( const QString &dataSource, const 
     if ( !defaultLoadedFlag )
     {
       // all else failed, create default renderer
-      setRenderer( QgsApplication::pointCloudRendererRegistry()->defaultRenderer( mDataProvider.get() ) );
+      setRenderer( QgsPointCloudRendererRegistry::defaultRenderer( mDataProvider.get() ) );
     }
   }
 }
@@ -415,16 +445,32 @@ QString QgsPointCloudLayer::decodedSource( const QString &source, const QString 
 
 void QgsPointCloudLayer::onPointCloudIndexGenerationStateChanged( QgsPointCloudDataProvider::PointCloudIndexGenerationState state )
 {
-  if ( state == QgsPointCloudDataProvider::Indexed )
+  switch ( state )
   {
-    mDataProvider.get()->loadIndex();
-    if ( mRenderer->type() == QLatin1String( "extent" ) )
+    case QgsPointCloudDataProvider::Indexed:
     {
-      setRenderer( QgsApplication::pointCloudRendererRegistry()->defaultRenderer( mDataProvider.get() ) );
-    }
-    triggerRepaint();
+      mDataProvider.get()->loadIndex();
+      if ( mRenderer->type() == QLatin1String( "extent" ) )
+      {
+        setRenderer( QgsPointCloudRendererRegistry::defaultRenderer( mDataProvider.get() ) );
+      }
+      triggerRepaint();
 
-    emit rendererChanged();
+      emit rendererChanged();
+      break;
+    }
+    case QgsPointCloudDataProvider::NotIndexed:
+    {
+      QgsError providerError = mDataProvider->error();
+      if ( !providerError.isEmpty() )
+      {
+        setError( providerError );
+        emit raiseError( providerError.summary() );
+      }
+      break;
+    }
+    case QgsPointCloudDataProvider::Indexing:
+      break;
   }
 }
 
@@ -450,28 +496,11 @@ QString QgsPointCloudLayer::htmlMetadata() const
   const QgsLayerMetadataFormatter htmlFormatter( metadata() );
   QString myMetadata = QStringLiteral( "<html>\n<body>\n" );
 
+  myMetadata += generalHtmlMetadata();
+
   // Begin Provider section
   myMetadata += QStringLiteral( "<h1>" ) + tr( "Information from provider" ) + QStringLiteral( "</h1>\n<hr>\n" );
   myMetadata += QLatin1String( "<table class=\"list-view\">\n" );
-
-  // name
-  myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) + tr( "Name" ) + QStringLiteral( "</td><td>" ) + name() + QStringLiteral( "</td></tr>\n" );
-
-  // local path
-  QVariantMap uriComponents = QgsProviderRegistry::instance()->decodeUri( mProviderKey, publicSource() );
-  QString path;
-  if ( uriComponents.contains( QStringLiteral( "path" ) ) )
-  {
-    path = uriComponents[QStringLiteral( "path" )].toString();
-    if ( QFile::exists( path ) )
-      myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) + tr( "Path" ) + QStringLiteral( "</td><td>%1" ).arg( QStringLiteral( "<a href=\"%1\">%2</a>" ).arg( QUrl::fromLocalFile( path ).toString(), QDir::toNativeSeparators( path ) ) ) + QStringLiteral( "</td></tr>\n" );
-    else
-      myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) + tr( "URL" ) + QStringLiteral( "</td><td>%1" ).arg( QStringLiteral( "<a href=\"%1\">%2</a>" ).arg( QUrl( path ).toString(), path ) ) + QStringLiteral( "</td></tr>\n" );
-  }
-
-  // data source
-  if ( publicSource() != path )
-    myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) + tr( "Source" ) + QStringLiteral( "</td><td>%1" ).arg( publicSource() ) + QStringLiteral( "</td></tr>\n" );
 
   // Extent
   myMetadata += QStringLiteral( "<tr><td class=\"highlight\">" ) + tr( "Extent" ) + QStringLiteral( "</td><td>" ) + extent().toString() + QStringLiteral( "</td></tr>\n" );
@@ -665,4 +694,62 @@ void QgsPointCloudLayer::setRenderer( QgsPointCloudRenderer *renderer )
   mRenderer.reset( renderer );
   emit rendererChanged();
   emitStyleChanged();
+
+  if ( mSync3DRendererTo2DRenderer )
+    convertRenderer3DFromRenderer2D();
+}
+
+bool QgsPointCloudLayer::setSubsetString( const QString &subset )
+{
+  if ( !isValid() || !mDataProvider )
+  {
+    QgsDebugMsgLevel( QStringLiteral( "invoked with invalid layer or null mDataProvider" ), 3 );
+    setCustomProperty( QStringLiteral( "storedSubsetString" ), subset );
+    return false;
+  }
+  else if ( subset == mDataProvider->subsetString() )
+    return true;
+
+  bool res = mDataProvider->setSubsetString( subset );
+  if ( res )
+  {
+    emit subsetStringChanged();
+    triggerRepaint();
+  }
+  return res;
+}
+
+QString QgsPointCloudLayer::subsetString() const
+{
+  if ( !isValid() || !mDataProvider )
+  {
+    QgsDebugMsgLevel( QStringLiteral( "invoked with invalid layer or null mDataProvider" ), 3 );
+    return customProperty( QStringLiteral( "storedSubsetString" ) ).toString();
+  }
+  return mDataProvider->subsetString();
+}
+
+bool QgsPointCloudLayer::convertRenderer3DFromRenderer2D()
+{
+  bool result = false;
+  QgsAbstractPointCloud3DRenderer *r = static_cast<QgsAbstractPointCloud3DRenderer *>( renderer3D() );
+  if ( r )
+  {
+    result = r->convertFrom2DRenderer( renderer() );
+    setRenderer3D( r );
+    trigger3DUpdate();
+  }
+  return result;
+}
+
+bool QgsPointCloudLayer::sync3DRendererTo2DRenderer() const
+{
+  return mSync3DRendererTo2DRenderer;
+}
+
+void QgsPointCloudLayer::setSync3DRendererTo2DRenderer( bool sync )
+{
+  mSync3DRendererTo2DRenderer = sync;
+  if ( sync )
+    convertRenderer3DFromRenderer2D();
 }

@@ -36,6 +36,7 @@
 #include "qgsrasterfilewriter.h"
 #include "qgsvectortilelayer.h"
 #include "qgspointcloudlayer.h"
+#include "qgsannotationlayer.h"
 #include <QRegularExpression>
 #include <QUuid>
 
@@ -80,6 +81,24 @@ QList<QgsPluginLayer *> QgsProcessingUtils::compatiblePluginLayers( QgsProject *
 QList<QgsPointCloudLayer *> QgsProcessingUtils::compatiblePointCloudLayers( QgsProject *project, bool sort )
 {
   return compatibleMapLayers< QgsPointCloudLayer >( project, sort );
+}
+
+QList<QgsAnnotationLayer *> QgsProcessingUtils::compatibleAnnotationLayers( QgsProject *project, bool sort )
+{
+  // we have to defer sorting until we've added the main annotation layer too
+  QList<QgsAnnotationLayer *> res = compatibleMapLayers< QgsAnnotationLayer >( project, false );
+  if ( project )
+    res.append( project->mainAnnotationLayer() );
+
+  if ( sort )
+  {
+    std::sort( res.begin(), res.end(), []( const QgsAnnotationLayer * a, const QgsAnnotationLayer * b ) -> bool
+    {
+      return QString::localeAwareCompare( a->name(), b->name() ) < 0;
+    } );
+  }
+
+  return res;
 }
 
 template<typename T> QList<T *> QgsProcessingUtils::compatibleMapLayers( QgsProject *project, bool sort )
@@ -127,6 +146,11 @@ QList<QgsMapLayer *> QgsProcessingUtils::compatibleLayers( QgsProject *project, 
   const auto pointCloudLayers = compatibleMapLayers< QgsPointCloudLayer >( project, false );
   for ( QgsPointCloudLayer *pcl : pointCloudLayers )
     layers << pcl;
+
+  const auto annotationLayers = compatibleMapLayers< QgsAnnotationLayer >( project, false );
+  for ( QgsAnnotationLayer *al : annotationLayers )
+    layers << al;
+  layers << project->mainAnnotationLayer();
 
   const auto pluginLayers = compatibleMapLayers< QgsPluginLayer >( project, false );
   for ( QgsPluginLayer *pl : pluginLayers )
@@ -177,15 +201,16 @@ QgsMapLayer *QgsProcessingUtils::mapLayerFromStore( const QString &string, QgsMa
       case QgsMapLayerType::RasterLayer:
         return !canUseLayer( qobject_cast< QgsRasterLayer * >( layer ) );
       case QgsMapLayerType::PluginLayer:
+      case QgsMapLayerType::GroupLayer:
         return true;
       case QgsMapLayerType::MeshLayer:
         return !canUseLayer( qobject_cast< QgsMeshLayer * >( layer ) );
       case QgsMapLayerType::VectorTileLayer:
         return !canUseLayer( qobject_cast< QgsVectorTileLayer * >( layer ) );
-      case QgsMapLayerType::AnnotationLayer:
-        return true;
       case QgsMapLayerType::PointCloudLayer:
         return !canUseLayer( qobject_cast< QgsPointCloudLayer * >( layer ) );
+      case QgsMapLayerType::AnnotationLayer:
+        return !canUseLayer( qobject_cast< QgsAnnotationLayer * >( layer ) );
     }
     return true;
   } ), layers.end() );
@@ -208,6 +233,9 @@ QgsMapLayer *QgsProcessingUtils::mapLayerFromStore( const QString &string, QgsMa
 
       case LayerHint::PointCloud:
         return l->type() == QgsMapLayerType::PointCloudLayer;
+
+      case LayerHint::Annotation:
+        return l->type() == QgsMapLayerType::AnnotationLayer;
     }
     return true;
   };
@@ -335,7 +363,7 @@ QgsMapLayer *QgsProcessingUtils::loadMapLayerFromString( const QString &string, 
     }
     else
     {
-      pointCloudLayer = std::make_unique< QgsPointCloudLayer >( uri, name, QStringLiteral( "pointcloud" ), pointCloudOptions );
+      pointCloudLayer = std::make_unique< QgsPointCloudLayer >( uri, name, QStringLiteral( "pdal" ), pointCloudOptions );
     }
     if ( pointCloudLayer->isValid() )
     {
@@ -351,6 +379,9 @@ QgsMapLayer *QgsProcessingUtils::mapLayerFromString( const QString &string, QgsP
     return nullptr;
 
   // prefer project layers
+  if ( context.project() && typeHint == LayerHint::Annotation && string.compare( QLatin1String( "main" ), Qt::CaseInsensitive ) == 0 )
+    return context.project()->mainAnnotationLayer();
+
   QgsMapLayer *layer = nullptr;
   if ( auto *lProject = context.project() )
   {
@@ -541,6 +572,11 @@ bool QgsProcessingUtils::canUseLayer( const QgsPointCloudLayer *layer )
   return layer && layer->isValid();
 }
 
+bool QgsProcessingUtils::canUseLayer( const QgsAnnotationLayer *layer )
+{
+  return layer && layer->isValid();
+}
+
 bool QgsProcessingUtils::canUseLayer( const QgsVectorLayer *layer, const QList<int> &sourceTypes )
 {
   return layer && layer->isValid() &&
@@ -669,9 +705,16 @@ QString QgsProcessingUtils::stringToPythonLiteral( const QString &string )
   s.replace( '\n', QLatin1String( "\\n" ) );
   s.replace( '\r', QLatin1String( "\\r" ) );
   s.replace( '\t', QLatin1String( "\\t" ) );
-  s.replace( '"', QLatin1String( "\\\"" ) );
-  s.replace( '\'', QLatin1String( "\\\'" ) );
-  s = s.prepend( '\'' ).append( '\'' );
+
+  if ( s.contains( '\'' ) && !s.contains( '\"' ) )
+  {
+    s = s.prepend( '"' ).append( '"' );
+  }
+  else
+  {
+    s.replace( '\'', QLatin1String( "\\\'" ) );
+    s = s.prepend( '\'' ).append( '\'' );
+  }
   return s;
 }
 
@@ -916,6 +959,7 @@ QgsRectangle QgsProcessingUtils::combineLayerExtents( const QList<QgsMapLayer *>
     {
       //transform layer extent to target CRS
       QgsCoordinateTransform ct( layer->crs(), crs, context.transformContext() );
+      ct.setBallparkTransformsAreAppropriate( true );
       try
       {
         QgsRectangle reprojExtent = ct.transformBoundingBox( layer->extent() );
@@ -1038,37 +1082,48 @@ QString QgsProcessingUtils::formatHelpMapAsHtml( const QVariantMap &map, const Q
     return QString();
   };
 
-  QString s = QObject::tr( "<html><body><h2>Algorithm description</h2>\n" );
-  s += QStringLiteral( "<p>" ) + getText( QStringLiteral( "ALG_DESC" ) ) + QStringLiteral( "</p>\n" );
+  QString s;
+  s += QStringLiteral( "<html><body><p>" ) + getText( QStringLiteral( "ALG_DESC" ) ) + QStringLiteral( "</p>\n" );
 
   QString inputs;
-
   const auto parameterDefinitions = algorithm->parameterDefinitions();
   for ( const QgsProcessingParameterDefinition *def : parameterDefinitions )
   {
-    inputs += QStringLiteral( "<h3>" ) + def->description() + QStringLiteral( "</h3>\n" );
-    inputs += QStringLiteral( "<p>" ) + getText( def->name() ) + QStringLiteral( "</p>\n" );
+    if ( def->flags() & QgsProcessingParameterDefinition::FlagHidden || def->isDestination() )
+      continue;
+
+    if ( !getText( def->name() ).isEmpty() )
+    {
+      inputs += QStringLiteral( "<h3>" ) + def->description() + QStringLiteral( "</h3>\n" );
+      inputs += QStringLiteral( "<p>" ) + getText( def->name() ) + QStringLiteral( "</p>\n" );
+    }
   }
   if ( !inputs.isEmpty() )
-    s += QObject::tr( "<h2>Input parameters</h2>\n" ) + inputs;
+    s += QStringLiteral( "<h2>" ) + QObject::tr( "Input parameters" ) + QStringLiteral( "</h2>\n" ) + inputs;
 
   QString outputs;
   const auto outputDefinitions = algorithm->outputDefinitions();
   for ( const QgsProcessingOutputDefinition *def : outputDefinitions )
   {
-    outputs += QStringLiteral( "<h3>" ) + def->description() + QStringLiteral( "</h3>\n" );
-    outputs += QStringLiteral( "<p>" ) + getText( def->name() ) + QStringLiteral( "</p>\n" );
+    if ( !getText( def->name() ).isEmpty() )
+    {
+      outputs += QStringLiteral( "<h3>" ) + def->description() + QStringLiteral( "</h3>\n" );
+      outputs += QStringLiteral( "<p>" ) + getText( def->name() ) + QStringLiteral( "</p>\n" );
+    }
   }
   if ( !outputs.isEmpty() )
-    s += QObject::tr( "<h2>Outputs</h2>\n" ) + outputs;
+    s += QStringLiteral( "<h2>" ) + QObject::tr( "Outputs" ) + QStringLiteral( "</h2>\n" ) + outputs;
+
+  if ( !map.value( QStringLiteral( "EXAMPLES" ) ).toString().isEmpty() )
+    s += QStringLiteral( "<h2>%1</h2>\n<p>%2</p>" ).arg( QObject::tr( "Examples" ), getText( QStringLiteral( "EXAMPLES" ) ) );
 
   s += QLatin1String( "<br>" );
   if ( !map.value( QStringLiteral( "ALG_CREATOR" ) ).toString().isEmpty() )
-    s += QObject::tr( "<p align=\"right\">Algorithm author: %1</p>" ).arg( getText( QStringLiteral( "ALG_CREATOR" ) ) );
+    s += QStringLiteral( "<p align=\"right\">" ) + QObject::tr( "Algorithm author:" ) + QStringLiteral( " " ) + getText( QStringLiteral( "ALG_CREATOR" ) ) + QStringLiteral( "</p>" );
   if ( !map.value( QStringLiteral( "ALG_HELP_CREATOR" ) ).toString().isEmpty() )
-    s += QObject::tr( "<p align=\"right\">Help author: %1</p>" ).arg( getText( QStringLiteral( "ALG_HELP_CREATOR" ) ) );
+    s += QStringLiteral( "<p align=\"right\">" ) + QObject::tr( "Help author:" ) + QStringLiteral( " " ) + getText( QStringLiteral( "ALG_HELP_CREATOR" ) ) + QStringLiteral( "</p>" );
   if ( !map.value( QStringLiteral( "ALG_VERSION" ) ).toString().isEmpty() )
-    s += QObject::tr( "<p align=\"right\">Algorithm version: %1</p>" ).arg( getText( QStringLiteral( "ALG_VERSION" ) ) );
+    s += QStringLiteral( "<p align=\"right\">" ) + QObject::tr( "Algorithm version:" ) + QStringLiteral( " " ) + getText( QStringLiteral( "ALG_VERSION" ) ) + QStringLiteral( "</p>" );
 
   s += QLatin1String( "</body></html>" );
   return s;
@@ -1197,7 +1252,7 @@ QgsFields QgsProcessingUtils::combineFields( const QgsFields &fieldsA, const Qgs
     {
       int idx = 2;
       QString newName = newField.name() + '_' + QString::number( idx );
-      while ( usedNames.contains( newName.toLower() ) )
+      while ( usedNames.contains( newName.toLower() ) || fieldsB.indexOf( newName ) != -1 )
       {
         idx++;
         newName = newField.name() + '_' + QString::number( idx );
@@ -1261,6 +1316,11 @@ QString QgsProcessingUtils::defaultRasterExtension()
   if ( setting == -1 )
     return QStringLiteral( "tif" );
   return QgsRasterFileWriter::supportedFormatExtensions().value( setting, QStringLiteral( "tif" ) );
+}
+
+QString QgsProcessingUtils::defaultPointCloudExtension()
+{
+  return QStringLiteral( "las" );
 }
 
 //
@@ -1462,9 +1522,9 @@ bool QgsProcessingFeatureSink::addFeatures( QgsFeatureList &features, QgsFeature
   {
     const QString error = lastError();
     if ( !error.isEmpty() )
-      mContext.feedback()->reportError( QObject::tr( "%1 feature(s) could not be written to %2: %3" ).arg( features.count() ).arg( mSinkName, error ) );
+      mContext.feedback()->reportError( QObject::tr( "%n feature(s) could not be written to %1: %2", nullptr, features.count() ).arg( mSinkName, error ) );
     else
-      mContext.feedback()->reportError( QObject::tr( "%1 feature(s) could not be written to %2" ).arg( features.count() ).arg( mSinkName ) );
+      mContext.feedback()->reportError( QObject::tr( "%n feature(s) could not be written to %1", nullptr, features.count() ).arg( mSinkName ) );
   }
   return result;
 }

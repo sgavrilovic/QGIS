@@ -21,7 +21,7 @@ email                : marco.hugentobler at sourcepole dot com
 #include "qgis_core.h"
 #include "qgis_sip.h"
 #include "qgspoint.h"
-#include "qgsabstractgeometry.h"
+#include "qgsvertexid.h"
 #include "qgsgeometry.h"
 #include "qgsvector3d.h"
 
@@ -92,6 +92,16 @@ class CORE_EXPORT QgsGeometryUtils
      * Returns the squared distance between a point and a line.
      */
     static double sqrDistToLine( double ptX, double ptY, double x1, double y1, double x2, double y2, double &minDistX SIP_OUT, double &minDistY SIP_OUT, double epsilon ) SIP_HOLDGIL;
+
+    /**
+     * Returns the distance between a point and an infinite line.
+     * \param point The point to find the distance to the line
+     * \param linePoint1 The first point of the line
+     * \param linePoint2 The second point of the line
+     * \param epsilon The tolerance to use
+     * \since QGIS 3.26
+     */
+    static double distToInfiniteLine( const QgsPoint &point, const QgsPoint &linePoint1, const QgsPoint &linePoint2, double epsilon = 1e-7 );
 
     /**
      * Computes the intersection between two lines. Z dimension is
@@ -169,8 +179,8 @@ class CORE_EXPORT QgsGeometryUtils
      *
      * \since QGIS 3.2
      */
-    static int circleCircleIntersections( QgsPointXY center1, double radius1,
-                                          QgsPointXY center2, double radius2,
+    static int circleCircleIntersections( const QgsPointXY &center1, double radius1,
+                                          const QgsPointXY &center2, double radius2,
                                           QgsPointXY &intersection1 SIP_OUT, QgsPointXY &intersection2 SIP_OUT ) SIP_HOLDGIL;
 
     /**
@@ -674,6 +684,36 @@ class CORE_EXPORT QgsGeometryUtils
      */
     static QgsLineString perpendicularSegment( const QgsPoint &p, const QgsPoint &s1, const QgsPoint &s2 ) SIP_HOLDGIL;
 
+    /**
+     * \brief Create a perpendicular line segment to a given segment [\a segmentPoint1,\a segmentPoint2] with its center at \a centerPoint.
+     *
+     * May be used to split geometries. Unless \a segmentLength is specified the new centered perpendicular line segment will have double the length of the input segment.
+     *
+     * The result is a line (segment) centered in point p and perpendicular to segment [segmentPoint1, segmentPoint2].
+     *
+     * \param centerPointX x-coordinate of the point where the center of the perpendicular should be located
+     * \param centerPointY y-coordinate of the point where the center of the perpendicular should be located
+     * \param segmentPoint1x: x-coordinate of segmentPoint1, the segment's start point
+     * \param segmentPoint1y: y-coordinate of segmentPoint1, the segment's start point
+     * \param segmentPoint2x: x-coordinate of segmentPoint2, the segment's end point
+     * \param segmentPoint2y: y-coordinate of segmentPoint2, the segment's end point
+     * \param perpendicularSegmentPoint1x: x-coordinate of the perpendicularCenterSegment's start point
+     * \param perpendicularSegmentPoint1y: y-coordinate of the perpendicularCenterSegment's start point
+     * \param perpendicularSegmentPoint2x: x-coordinate of the perpendicularCenterSegment's end point
+     * \param perpendicularSegmentPoint2y: y-coordinate of the perpendicularCenterSegment's end point
+     * \param segmentLength (optional) Trims to given length. A segmentLength value of 0 refers to the default length which is double the length of the input segment. Set to 1 for a normalized length.
+     *
+     *
+     * \since QGIS 3.24
+     */
+
+    static void perpendicularCenterSegment( double centerPointX, double centerPointY,
+                                            double segmentPoint1x, double segmentPoint1y,
+                                            double segmentPoint2x, double segmentPoint2y,
+                                            double &perpendicularSegmentPoint1x SIP_OUT, double &perpendicularSegmentPoint1y SIP_OUT,
+                                            double &perpendicularSegmentPoint2x SIP_OUT, double &perpendicularSegmentPoint2y SIP_OUT,
+                                            double segmentLength = 0
+                                          ) SIP_HOLDGIL;
 
     /**
      * An algorithm to calculate the shortest distance between two skew lines.

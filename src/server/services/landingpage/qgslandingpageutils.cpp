@@ -26,6 +26,7 @@
 #include "qgslayertree.h"
 #include "qgsvectorlayer.h"
 #include "nlohmann/json.hpp"
+#include "qgscoordinatetransform.h"
 
 #include <mutex>
 #include <QCryptographicHash>
@@ -115,7 +116,7 @@ QMap<QString, QString> QgsLandingPageUtils::projects( const QgsServerSettings &s
 
   // PG projects (there is no watcher for PG: scan every time)
   const QString envPgName = QgsServerSettings::name( QgsServerSettingsEnv::QGIS_SERVER_LANDING_PAGE_PROJECTS_PG_CONNECTIONS );
-  const auto storage { QgsApplication::instance()->projectStorageRegistry()->projectStorageFromType( QStringLiteral( "postgresql" ) ) };
+  const auto storage { QgsApplication::projectStorageRegistry()->projectStorageFromType( QStringLiteral( "postgresql" ) ) };
   Q_ASSERT( storage );
   const auto cPgConnections { pgConnections.split( QStringLiteral( "||" ) ) };
   for ( const auto &connectionString : cPgConnections )
@@ -293,10 +294,6 @@ json QgsLandingPageUtils::projectInfo( const QString &projectUri, const QgsServe
     QString title { p->metadata().title() };
     if ( title.isEmpty() )
       title = QgsServerProjectUtils::owsServiceTitle( *p );
-    if ( title.isEmpty() )
-      title = p->title();
-    if ( title.isEmpty() )
-      title = p->baseName();
     info["title"] = title.toStdString();
     // Description
     QString description { p->metadata().abstract() };

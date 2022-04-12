@@ -212,7 +212,11 @@ void QgsGeos::geometryChanged()
 
 void QgsGeos::prepareGeometry()
 {
-  mGeosPrepared.reset();
+  if ( mGeosPrepared )
+  {
+    // Already prepared
+    return;
+  }
   if ( mGeos )
   {
     mGeosPrepared.reset( GEOSPrepare_r( geosinit()->ctxt, mGeos.get() ) );
@@ -221,6 +225,11 @@ void QgsGeos::prepareGeometry()
 
 void QgsGeos::cacheGeos() const
 {
+  if ( mGeos )
+  {
+    // Already cached
+    return;
+  }
   if ( !mGeometry )
   {
     return;
@@ -464,6 +473,53 @@ double QgsGeos::distance( const QgsAbstractGeometry *geom, QString *errorMsg ) c
   CATCH_GEOS_WITH_ERRMSG( -1.0 )
 
   return distance;
+}
+
+bool QgsGeos::distanceWithin( const QgsAbstractGeometry *geom, double maxdist, QString *errorMsg ) const
+{
+  if ( !mGeos )
+  {
+    return false;
+  }
+
+  geos::unique_ptr otherGeosGeom( asGeos( geom, mPrecision ) );
+  if ( !otherGeosGeom )
+  {
+    return false;
+  }
+
+  // TODO: optimize implementation of this function to early-exit if
+  // any part of othergeosGeom is found to be within the given
+  // distance
+  double distance;
+
+
+  try
+  {
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=9 )
+    if ( mGeosPrepared )
+    {
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=10 )
+      return GEOSPreparedDistanceWithin_r( geosinit()->ctxt, mGeosPrepared.get(), otherGeosGeom.get(), maxdist );
+#else
+      GEOSPreparedDistance_r( geosinit()->ctxt, mGeosPrepared.get(), otherGeosGeom.get(), &distance );
+#endif
+    }
+    else
+    {
+#if GEOS_VERSION_MAJOR>3 || ( GEOS_VERSION_MAJOR == 3 && GEOS_VERSION_MINOR>=10 )
+      return GEOSDistanceWithin_r( geosinit()->ctxt, mGeos.get(), otherGeosGeom.get(), maxdist );
+#else
+      GEOSDistance_r( geosinit()->ctxt, mGeos.get(), otherGeosGeom.get(), &distance );
+#endif
+    }
+#else // GEOS < 3.3.9
+    GEOSDistance_r( geosinit()->ctxt, mGeos.get(), otherGeosGeom.get(), &distance );
+#endif
+  }
+  CATCH_GEOS_WITH_ERRMSG( false )
+
+  return distance <= maxdist;
 }
 
 double QgsGeos::hausdorffDistance( const QgsAbstractGeometry *geom, QString *errorMsg ) const
@@ -867,11 +923,19 @@ geos::unique_ptr QgsGeos::linePointDifference( GEOSGeometry *GEOSsplitPoint ) co
   }
 
 
+  // we might have a point or a multipoint, depending on number of
+  // intersections between the geometry and the split geometry
   std::unique_ptr< QgsAbstractGeometry > splitGeom( fromGeos( GEOSsplitPoint ) );
-  QgsPoint *splitPoint = qgsgeometry_cast<QgsPoint *>( splitGeom.get() );
-  if ( !splitPoint )
+  std::unique_ptr< QgsMultiPoint > splitPoints( qgsgeometry_cast<QgsMultiPoint *>( splitGeom->clone() ) );
+  if ( !splitPoints )
   {
-    return nullptr;
+    QgsPoint *splitPoint = qgsgeometry_cast<QgsPoint *>( splitGeom->clone() );
+    if ( !splitPoint )
+    {
+      return nullptr;
+    }
+    splitPoints.reset( new QgsMultiPoint() );
+    splitPoints->addGeometry( splitPoint );
   }
 
   QgsMultiCurve lines;
@@ -880,26 +944,79 @@ geos::unique_ptr QgsGeos::linePointDifference( GEOSGeometry *GEOSsplitPoint ) co
   for ( int i = 0; i < multiCurve->numGeometries(); ++i )
   {
     const QgsLineString *line = qgsgeometry_cast<const QgsLineString *>( multiCurve->geometryN( i ) );
-    if ( line )
+    if ( !line )
     {
-      //For each segment
-      QgsLineString newLine;
-      newLine.addVertex( line->pointN( 0 ) );
-      int nVertices = line->numPoints();
-      for ( int j = 1; j < ( nVertices - 1 ); ++j )
+      const QgsCurve *curve = qgsgeometry_cast<const QgsCurve *>( multiCurve->geometryN( i ) );
+      line = curve->curveToLine();
+    }
+    if ( !line )
+    {
+      return nullptr;
+    }
+    // we gather the intersection points and their distance from previous node grouped by segment
+    QMap< int, QVector< QPair< double, QgsPoint > > >pointMap;
+    for ( int p = 0; p < splitPoints->numGeometries(); ++p )
+    {
+      const QgsPoint *intersectionPoint = splitPoints->pointN( p );
+      QgsPoint segmentPoint2D;
+      QgsVertexId nextVertex;
+      // With closestSegment we only get a 2D point so we need to interpolate if we
+      // don't want to lose Z data
+      line->closestSegment( *intersectionPoint, segmentPoint2D, nextVertex );
+      const QgsLineString segment = QgsLineString( line->pointN( nextVertex.vertex - 1 ), line->pointN( nextVertex.vertex ) );
+      const double distance = segmentPoint2D.distance( line->pointN( nextVertex.vertex - 1 ) );
+      std::unique_ptr< QgsPoint > correctSegmentPoint( segment.interpolatePoint( distance ) );
+      const QPair< double, QgsPoint > pair = qMakePair( distance, *correctSegmentPoint.get() );
+      if ( pointMap.contains( nextVertex.vertex - 1 ) )
+        pointMap[ nextVertex.vertex - 1 ].append( pair );
+      else
+        pointMap[ nextVertex.vertex - 1 ] = QVector< QPair< double, QgsPoint > >() << pair;
+    }
+
+    // When we have more than one intersection point on a segment we need those points
+    // to be sorted by their distance from the previous geometry vertex
+    for ( auto &p : pointMap )
+    {
+      std::sort( p.begin(), p.end(), []( const QPair< double, QgsPoint > &a, const QPair< double, QgsPoint > &b ) { return a.first < b.first; } );
+    }
+
+    //For each segment
+    QgsLineString newLine;
+    int nVertices = line->numPoints();
+    QgsPoint splitPoint;
+    for ( int j = 0; j < nVertices; ++j )
+    {
+      QgsPoint currentPoint = line->pointN( j );
+      newLine.addVertex( currentPoint );
+      if ( pointMap.contains( j ) )
       {
-        QgsPoint currentPoint = line->pointN( j );
-        newLine.addVertex( currentPoint );
-        if ( currentPoint == *splitPoint )
+        // For each intersecting point
+        for ( int k = 0; k < pointMap[ j ].size(); ++k )
         {
-          lines.addGeometry( newLine.clone() );
-          newLine = QgsLineString();
-          newLine.addVertex( currentPoint );
+          splitPoint = pointMap[ j ][k].second;
+          if ( splitPoint == currentPoint )
+          {
+            lines.addGeometry( newLine.clone() );
+            newLine = QgsLineString();
+            newLine.addVertex( currentPoint );
+          }
+          else if ( splitPoint == line->pointN( j + 1 ) )
+          {
+            newLine.addVertex( line->pointN( j + 1 ) );
+            lines.addGeometry( newLine.clone() );
+            newLine = QgsLineString();
+          }
+          else
+          {
+            newLine.addVertex( splitPoint );
+            lines.addGeometry( newLine.clone() );
+            newLine = QgsLineString();
+            newLine.addVertex( splitPoint );
+          }
         }
       }
-      newLine.addVertex( line->pointN( nVertices - 1 ) );
-      lines.addGeometry( newLine.clone() );
     }
+    lines.addGeometry( newLine.clone() );
   }
 
   return asGeos( &lines, mPrecision );
@@ -907,14 +1024,15 @@ geos::unique_ptr QgsGeos::linePointDifference( GEOSGeometry *GEOSsplitPoint ) co
 
 QgsGeometryEngine::EngineOperationResult QgsGeos::splitLinearGeometry( GEOSGeometry *splitLine, QVector<QgsGeometry> &newGeometries, bool skipIntersectionCheck ) const
 {
+  Q_UNUSED( skipIntersectionCheck )
   if ( !splitLine )
     return InvalidInput;
 
   if ( !mGeos )
     return InvalidBaseGeometry;
 
-  //first test if linestring intersects geometry. If not, return straight away
-  if ( !skipIntersectionCheck && !GEOSIntersects_r( geosinit()->ctxt, splitLine, mGeos.get() ) )
+  geos::unique_ptr intersectGeom( GEOSIntersection_r( geosinit()->ctxt, splitLine, mGeos.get() ) );
+  if ( !intersectGeom )
     return NothingHappened;
 
   //check that split line has no linear intersection
@@ -922,17 +1040,12 @@ QgsGeometryEngine::EngineOperationResult QgsGeos::splitLinearGeometry( GEOSGeome
   if ( linearIntersect > 0 )
     return InvalidInput;
 
-  int splitGeomType = GEOSGeomTypeId_r( geosinit()->ctxt, splitLine );
-
   geos::unique_ptr splitGeom;
-  if ( splitGeomType == GEOS_POINT )
-  {
-    splitGeom = linePointDifference( splitLine );
-  }
-  else
-  {
-    splitGeom.reset( GEOSDifference_r( geosinit()->ctxt, mGeos.get(), splitLine ) );
-  }
+  splitGeom = linePointDifference( intersectGeom.get() );
+
+  if ( !splitGeom )
+    return InvalidBaseGeometry;
+
   QVector<GEOSGeometry *> lineGeoms;
 
   int splitType = GEOSGeomTypeId_r( geosinit()->ctxt, splitGeom.get() );
@@ -2454,7 +2567,7 @@ QgsGeometry QgsGeos::mergeLines( QString *errorMsg ) const
 
 QgsGeometry QgsGeos::closestPoint( const QgsGeometry &other, QString *errorMsg ) const
 {
-  if ( !mGeos || isEmpty() || other.isNull() )
+  if ( !mGeos || isEmpty() || other.isEmpty() )
   {
     return QgsGeometry();
   }

@@ -82,15 +82,14 @@ QFuture<void> QgsGeometryChecker::execute( int *totalSteps )
       }
     }
   }
-
-  QFuture<void> future = QtConcurrent::map( mChecks, RunCheckWrapper( this ) );
-
-  QFutureWatcher<void> *watcher = new QFutureWatcher<void>();
-  watcher->setFuture( future );
   QTimer *timer = new QTimer();
   connect( timer, &QTimer::timeout, this, &QgsGeometryChecker::emitProgressValue );
+  QFutureWatcher<void> *watcher = new QFutureWatcher<void>();
   connect( watcher, &QFutureWatcherBase::finished, timer, &QObject::deleteLater );
   connect( watcher, &QFutureWatcherBase::finished, watcher, &QObject::deleteLater );
+
+  QFuture<void> future = QtConcurrent::map( mChecks, RunCheckWrapper( this ) );
+  watcher->setFuture( future );
   timer->start( 500 );
 
   return future;
@@ -151,6 +150,7 @@ bool QgsGeometryChecker::fixError( QgsGeometryCheckError *error, int method, boo
     const QMap<QgsFeatureId, QList<QgsGeometryCheck::Change>> &layerChanges = it.value();
     QgsFeaturePool *featurePool = mFeaturePools[it.key()];
     QgsCoordinateTransform t( featurePool->layer()->crs(), mContext->mapCrs, QgsProject::instance() );
+    t.setBallparkTransformsAreAppropriate( true );
     for ( auto layerChangeIt = layerChanges.constBegin(); layerChangeIt != layerChanges.constEnd(); ++layerChangeIt )
     {
       bool removed = false;

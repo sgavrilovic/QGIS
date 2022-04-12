@@ -119,7 +119,7 @@ static QDomElement _writeOldLegendLayer( QDomDocument &doc, QgsLayerTreeLayer *n
   layerElem.setAttribute( QStringLiteral( "showFeatureCount" ), nodeLayer->customProperty( QStringLiteral( "showFeatureCount" ) ).toInt() );
 
   QDomElement fileGroupElem = doc.createElement( QStringLiteral( "filegroup" ) );
-  fileGroupElem.setAttribute( QStringLiteral( "open" ), nodeLayer->isExpanded() ? "true" : "false" );
+  fileGroupElem.setAttribute( QStringLiteral( "open" ), nodeLayer->isExpanded() ? QStringLiteral( "true" ) : QStringLiteral( "false" ) );
   fileGroupElem.setAttribute( QStringLiteral( "hidden" ), QStringLiteral( "false" ) );
 
   QDomElement layerFileElem = doc.createElement( QStringLiteral( "legendlayerfile" ) );
@@ -138,7 +138,7 @@ static void _writeOldLegendGroupChildren( QDomDocument &doc, QDomElement &groupE
 static QDomElement _writeOldLegendGroup( QDomDocument &doc, QgsLayerTreeGroup *nodeGroup, bool hasCustomOrder, const QList<QgsMapLayer *> &order )
 {
   QDomElement groupElem = doc.createElement( QStringLiteral( "legendgroup" ) );
-  groupElem.setAttribute( QStringLiteral( "open" ), nodeGroup->isExpanded() ? "true" : "false" );
+  groupElem.setAttribute( QStringLiteral( "open" ), nodeGroup->isExpanded() ? QStringLiteral( "true" ) : QStringLiteral( "false" ) );
   groupElem.setAttribute( QStringLiteral( "name" ), nodeGroup->name() );
   groupElem.setAttribute( QStringLiteral( "checked" ), QgsLayerTreeUtils::checkStateToXml( nodeGroup->itemVisibilityChecked() ? Qt::Checked : Qt::Unchecked ) );
 
@@ -190,9 +190,9 @@ QString QgsLayerTreeUtils::checkStateToXml( Qt::CheckState state )
     case Qt::PartiallyChecked:
       return QStringLiteral( "Qt::PartiallyChecked" );
     case Qt::Checked:
-    default:
       return QStringLiteral( "Qt::Checked" );
   }
+  return QString();
 }
 
 Qt::CheckState QgsLayerTreeUtils::checkStateFromXml( const QString &txt )
@@ -261,7 +261,7 @@ static void _readOldLegendLayer( const QDomElement &layerElem, QgsLayerTreeGroup
   parent->addChildNode( layerNode );
 }
 
-bool QgsLayerTreeUtils::layersEditable( const QList<QgsLayerTreeLayer *> &layerNodes )
+bool QgsLayerTreeUtils::layersEditable( const QList<QgsLayerTreeLayer *> &layerNodes, bool ignoreLayersWhichCannotBeToggled )
 {
   const auto constLayerNodes = layerNodes;
   for ( QgsLayerTreeLayer *layerNode : constLayerNodes )
@@ -270,7 +270,7 @@ bool QgsLayerTreeUtils::layersEditable( const QList<QgsLayerTreeLayer *> &layerN
     if ( !layer )
       continue;
 
-    if ( layer->isEditable() )
+    if ( layer->isEditable() && ( !ignoreLayersWhichCannotBeToggled || !( layer->properties() & Qgis::MapLayerProperty::UsersCannotToggleEditing ) ) )
       return true;
   }
   return false;
@@ -313,16 +313,18 @@ void QgsLayerTreeUtils::removeInvalidLayers( QgsLayerTreeGroup *group )
 
 void QgsLayerTreeUtils::storeOriginalLayersProperties( QgsLayerTreeGroup *group,  const QDomDocument *doc )
 {
-
   const QDomElement projectLayersElement { doc->documentElement().firstChildElement( QStringLiteral( "projectlayers" ) ) };
 
   std::function<void ( QgsLayerTreeNode * )> _store = [ & ]( QgsLayerTreeNode * node )
   {
     if ( QgsLayerTree::isLayer( node ) )
     {
-      QgsMapLayer *l( QgsLayerTree::toLayer( node )->layer() );
-      if ( l )
+      if ( QgsMapLayer *l = QgsLayerTree::toLayer( node )->layer() )
       {
+        // no need to store for annotation layers, they can never break!
+        if ( l->type() == QgsMapLayerType::AnnotationLayer )
+          return;
+
         QDomElement layerElement { projectLayersElement.firstChildElement( QStringLiteral( "maplayer" ) ) };
         while ( ! layerElement.isNull() )
         {
@@ -349,7 +351,8 @@ void QgsLayerTreeUtils::storeOriginalLayersProperties( QgsLayerTreeGroup *group,
     }
   };
 
-  for ( QgsLayerTreeNode *node : group->children() )
+  const QList<QgsLayerTreeNode *> children = group->children();
+  for ( QgsLayerTreeNode *node : children )
   {
     _store( node );
   }
@@ -469,7 +472,7 @@ QgsLayerTreeLayer *QgsLayerTreeUtils::insertLayerBelow( QgsLayerTreeGroup *group
   }
   // insert the new layer
   QgsLayerTreeGroup *parent = static_cast<QgsLayerTreeGroup *>( inTree->parent() ) ? static_cast<QgsLayerTreeGroup *>( inTree->parent() ) : group;
-  return parent->insertLayer( idx, layerToInsert );
+  return parent->insertLayer( idx + 1, layerToInsert );
 }
 
 static void _collectMapLayers( const QList<QgsLayerTreeNode *> &nodes, QSet<QgsMapLayer *> &layersSet )

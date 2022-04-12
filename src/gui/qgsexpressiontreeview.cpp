@@ -195,12 +195,7 @@ void QgsExpressionTreeView::setProject( QgsProject *project )
 
 void QgsExpressionTreeView::setSearchText( const QString &text )
 {
-  const QRegularExpression regularExpression( QRegularExpression::wildcardToRegularExpression( text ) );
-  if ( regularExpression.isValid() )
-  {
-    mProxyModel->setFilterRegularExpression( regularExpression );
-    mProxyModel->setFilterCaseSensitivity( Qt::CaseInsensitive );
-  }
+  mProxyModel->setFilterString( text );
   if ( text.isEmpty() )
   {
     collapseAll();
@@ -280,6 +275,8 @@ void QgsExpressionTreeView::updateFunctionTree()
   registerItem( QStringLiteral( "Operators" ), QStringLiteral( ">=" ), QStringLiteral( " >= " ) );
   registerItem( QStringLiteral( "Operators" ), QStringLiteral( "[]" ), QStringLiteral( "[ ]" ) );
   registerItem( QStringLiteral( "Operators" ), QStringLiteral( "||" ), QStringLiteral( " || " ) );
+  registerItem( QStringLiteral( "Operators" ), QStringLiteral( "BETWEEN" ), QStringLiteral( " BETWEEN " ) );
+  registerItem( QStringLiteral( "Operators" ), QStringLiteral( "NOT BETWEEN" ), QStringLiteral( " NOT BETWEEN " ) );
   registerItem( QStringLiteral( "Operators" ), QStringLiteral( "IN" ), QStringLiteral( " IN " ) );
   registerItem( QStringLiteral( "Operators" ), QStringLiteral( "LIKE" ), QStringLiteral( " LIKE " ) );
   registerItem( QStringLiteral( "Operators" ), QStringLiteral( "ILIKE" ), QStringLiteral( " ILIKE " ) );
@@ -328,11 +325,11 @@ void QgsExpressionTreeView::updateFunctionTree()
   loadExpressionContext();
 }
 
-void QgsExpressionTreeView::registerItem( const QString &group,
+QgsExpressionItem *QgsExpressionTreeView::registerItem( const QString &group,
     const QString &label,
     const QString &expressionText,
     const QString &helpText,
-    QgsExpressionItem::ItemType type, bool highlightedItem, int sortOrder, QIcon icon, const QStringList &tags, const QString &name )
+    QgsExpressionItem::ItemType type, bool highlightedItem, int sortOrder, const QIcon &icon, const QStringList &tags, const QString &name )
 {
   QgsExpressionItem *item = new QgsExpressionItem( label, expressionText, helpText, type );
   item->setData( label, Qt::UserRole );
@@ -371,6 +368,7 @@ void QgsExpressionTreeView::registerItem( const QString &group,
     topLevelItem->setFont( font );
     mModel->appendRow( topLevelItem );
   }
+  return item;
 }
 
 void QgsExpressionTreeView::registerItemForAllGroups( const QStringList &groups, const QString &label, const QString &expressionText, const QString &helpText, QgsExpressionItem::ItemType type, bool highlightedItem, int sortOrder, const QStringList &tags )
@@ -419,7 +417,31 @@ void QgsExpressionTreeView::loadLayers()
   for ( ; layerIt != layers.constEnd(); ++layerIt )
   {
     QIcon icon = QgsIconUtils::iconForLayer( layerIt.value() );
-    registerItem( QStringLiteral( "Map Layers" ), layerIt.value()->name(), QStringLiteral( "'%1'" ).arg( layerIt.key() ), formatLayerHelp( layerIt.value() ), QgsExpressionItem::ExpressionNode, false, 99, icon );
+    QgsExpressionItem *parentItem = registerItem( QStringLiteral( "Map Layers" ), layerIt.value()->name(), QStringLiteral( "'%1'" ).arg( layerIt.key() ), formatLayerHelp( layerIt.value() ), QgsExpressionItem::ExpressionNode, false, 99, icon );
+    loadLayerFields( qobject_cast<QgsVectorLayer *>( layerIt.value() ), parentItem );
+  }
+
+}
+
+void QgsExpressionTreeView::loadLayerFields( QgsVectorLayer *layer, QgsExpressionItem *parentItem )
+{
+  if ( !layer )
+    return;
+
+  const QgsFields fields = layer->fields();
+  for ( int fieldIdx = 0; fieldIdx < fields.count(); ++fieldIdx )
+  {
+    const QgsField field = fields.at( fieldIdx );
+    QIcon icon = fields.iconForField( fieldIdx );
+    const QString label { field.displayNameWithAlias() };
+    QgsExpressionItem *item = new QgsExpressionItem( label, " '" + field.name() + "' ", QString(), QgsExpressionItem::Field );
+    item->setData( label, Qt::UserRole );
+    item->setData( 99, QgsExpressionItem::CUSTOM_SORT_ROLE );
+    item->setData( QStringList(), QgsExpressionItem::SEARCH_TAGS_ROLE );
+    item->setData( field.name(), QgsExpressionItem::ITEM_NAME_ROLE );
+    item->setData( layer->id(), QgsExpressionItem::LAYER_ID_ROLE );
+    item->setIcon( icon );
+    parentItem->appendRow( item );
   }
 }
 
@@ -510,7 +532,7 @@ void QgsExpressionTreeView::saveToRecent( const QString &expressionText, const Q
   loadRecent( collection );
 }
 
-void QgsExpressionTreeView::saveToUserExpressions( const QString &label, const QString expression, const QString &helpText )
+void QgsExpressionTreeView::saveToUserExpressions( const QString &label, const QString &expression, const QString &helpText )
 {
   QgsSettings settings;
   const QString location = QStringLiteral( "user" );
@@ -547,7 +569,6 @@ void QgsExpressionTreeView::loadUserExpressions( )
   QgsSettings settings;
   const QString location = QStringLiteral( "user" );
   settings.beginGroup( location, QgsSettings::Section::Expressions );
-  QString label;
   QString helpText;
   QString expression;
   int i = 0;
@@ -603,7 +624,7 @@ QJsonDocument QgsExpressionTreeView::exportUserExpressions()
     settings.endGroup();
   }
 
-  exportObject["expressions"] = exportList;
+  exportObject[QStringLiteral( "expressions" )] = exportList;
   QJsonDocument exportJson = QJsonDocument( exportObject );
 
   return exportJson;
@@ -618,14 +639,14 @@ void QgsExpressionTreeView::loadExpressionsFromJson( const QJsonDocument &expres
   QJsonObject expressionsObject = expressionsDocument.object();
 
   // validate json for manadatory fields
-  if ( ! expressionsObject["qgis_version"].isString()
-       || ! expressionsObject["exported_at"].isString()
-       || ! expressionsObject["author"].isString()
-       || ! expressionsObject["expressions"].isArray() )
+  if ( ! expressionsObject[QStringLiteral( "qgis_version" )].isString()
+       || ! expressionsObject[QStringLiteral( "exported_at" )].isString()
+       || ! expressionsObject[QStringLiteral( "author" )].isString()
+       || ! expressionsObject[QStringLiteral( "expressions" )].isArray() )
     return;
 
   // validate versions
-  QVersionNumber qgisJsonVersion = QVersionNumber::fromString( expressionsObject["qgis_version"].toString() );
+  QVersionNumber qgisJsonVersion = QVersionNumber::fromString( expressionsObject[QStringLiteral( "qgis_version" )].toString() );
   QVersionNumber qgisVersion = QVersionNumber::fromString( Qgis::version() );
 
   // if the expressions are from newer version of QGIS, we ask the user to confirm
@@ -659,7 +680,8 @@ void QgsExpressionTreeView::loadExpressionsFromJson( const QJsonDocument &expres
   settings.beginGroup( QStringLiteral( "user" ), QgsSettings::Section::Expressions );
   mUserExpressionLabels = settings.childGroups();
 
-  for ( const QJsonValue && expressionValue : expressionsObject["expressions"].toArray() )
+  const QJsonArray expressions = expressionsObject[QStringLiteral( "expressions" )].toArray();
+  for ( const QJsonValue && expressionValue : expressions )
   {
     // validate the type of the array element, can be anything
     if ( ! expressionValue.isObject() )
@@ -672,43 +694,43 @@ void QgsExpressionTreeView::loadExpressionsFromJson( const QJsonDocument &expres
     QJsonObject expressionObj = expressionValue.toObject();
 
     // make sure the required keys are the correct types
-    if ( ! expressionObj["name"].isString()
-         || ! expressionObj["type"].isString()
-         || ! expressionObj["expression"].isString()
-         || ! expressionObj["group"].isString()
-         || ! expressionObj["description"].isString() )
+    if ( ! expressionObj[QStringLiteral( "name" )].isString()
+         || ! expressionObj[QStringLiteral( "type" )].isString()
+         || ! expressionObj[QStringLiteral( "expression" )].isString()
+         || ! expressionObj[QStringLiteral( "group" )].isString()
+         || ! expressionObj[QStringLiteral( "description" )].isString() )
     {
       // try to stringify and put an indicator what happened. Try to stringify the name, if fails, go with the expression.
-      if ( ! expressionObj["name"].toString().isEmpty() )
-        skippedExpressionLabels.append( expressionObj["name"].toString() );
+      if ( ! expressionObj[QStringLiteral( "name" )].toString().isEmpty() )
+        skippedExpressionLabels.append( expressionObj[QStringLiteral( "name" )].toString() );
       else
-        skippedExpressionLabels.append( expressionObj["expression"].toString() );
+        skippedExpressionLabels.append( expressionObj[QStringLiteral( "expression" )].toString() );
 
       continue;
     }
 
     // we want to import only items of type expression for now
-    if ( expressionObj["type"].toString() != QLatin1String( "expression" ) )
+    if ( expressionObj[QStringLiteral( "type" )].toString() != QLatin1String( "expression" ) )
     {
-      skippedExpressionLabels.append( expressionObj["name"].toString() );
+      skippedExpressionLabels.append( expressionObj[QStringLiteral( "name" )].toString() );
       continue;
     }
 
     // we want to import only items of type expression for now
-    if ( expressionObj["group"].toString() != QLatin1String( "user" ) )
+    if ( expressionObj[QStringLiteral( "group" )].toString() != QLatin1String( "user" ) )
     {
-      skippedExpressionLabels.append( expressionObj["name"].toString() );
+      skippedExpressionLabels.append( expressionObj[QStringLiteral( "name" )].toString() );
       continue;
     }
 
-    const QString label = expressionObj["name"].toString();
-    const QString expression = expressionObj["expression"].toString();
-    const QString helpText = expressionObj["description"].toString();
+    const QString label = expressionObj[QStringLiteral( "name" )].toString();
+    const QString expression = expressionObj[QStringLiteral( "expression" )].toString();
+    const QString helpText = expressionObj[QStringLiteral( "description" )].toString();
 
     // make sure they have valid name
-    if ( label.contains( "\\" ) || label.contains( '/' ) )
+    if ( label.contains( QLatin1String( "\\" ) ) || label.contains( '/' ) )
     {
-      skippedExpressionLabels.append( expressionObj["name"].toString() );
+      skippedExpressionLabels.append( expressionObj[QStringLiteral( "name" )].toString() );
       continue;
     }
 
@@ -741,13 +763,14 @@ void QgsExpressionTreeView::loadExpressionsFromJson( const QJsonDocument &expres
   if ( ! skippedExpressionLabels.isEmpty() )
   {
     QStringList skippedExpressionLabelsQuoted;
+    skippedExpressionLabelsQuoted.reserve( skippedExpressionLabels.size() );
     for ( const QString &skippedExpressionLabel : skippedExpressionLabels )
       skippedExpressionLabelsQuoted.append( QStringLiteral( "'%1'" ).arg( skippedExpressionLabel ) );
 
     QMessageBox::information( this,
                               tr( "Skipped Expression Imports" ),
                               QStringLiteral( "%1\n%2" ).arg( tr( "The following expressions have been skipped:" ),
-                                  skippedExpressionLabelsQuoted.join( ", " ) ) );
+                                  skippedExpressionLabelsQuoted.join( QLatin1String( ", " ) ) ) );
   }
 }
 
@@ -755,10 +778,9 @@ const QList<QgsExpressionItem *> QgsExpressionTreeView::findExpressions( const Q
 {
   QList<QgsExpressionItem *> result;
   const QList<QStandardItem *> found { mModel->findItems( label, Qt::MatchFlag::MatchRecursive ) };
-  for ( const auto &item : std::as_const( found ) )
-  {
-    result.push_back( static_cast<QgsExpressionItem *>( item ) );
-  }
+  result.reserve( found.size() );
+  std::transform( found.begin(), found.end(), std::back_inserter( result ),
+                  []( QStandardItem * item ) -> QgsExpressionItem* { return static_cast<QgsExpressionItem *>( item ); } );
   return result;
 }
 
@@ -816,40 +838,42 @@ QgsExpressionItemSearchProxy::QgsExpressionItemSearchProxy()
 bool QgsExpressionItemSearchProxy::filterAcceptsRow( int source_row, const QModelIndex &source_parent ) const
 {
   QModelIndex index = sourceModel()->index( source_row, 0, source_parent );
-  QgsExpressionItem::ItemType itemType = QgsExpressionItem::ItemType( sourceModel()->data( index, QgsExpressionItem::ITEM_TYPE_ROLE ).toInt() );
-
-  int count = sourceModel()->rowCount( index );
-  bool matchchild = false;
-  for ( int i = 0; i < count; ++i )
-  {
-    if ( filterAcceptsRow( i, index ) )
-    {
-      matchchild = true;
-      break;
-    }
-  }
-
-  if ( itemType == QgsExpressionItem::Header && matchchild )
-    return true;
+  const QgsExpressionItem::ItemType itemType = QgsExpressionItem::ItemType( sourceModel()->data( index, QgsExpressionItem::ITEM_TYPE_ROLE ).toInt() );
 
   if ( itemType == QgsExpressionItem::Header )
-    return false;
+  {
+    // show header if any child item matches
+    int count = sourceModel()->rowCount( index );
+    bool matchchild = false;
+    for ( int i = 0; i < count; ++i )
+    {
+      if ( filterAcceptsRow( i, index ) )
+      {
+        matchchild = true;
+        break;
+      }
+    }
+    return matchchild;
+  }
 
   // check match of item label or tags
-  if ( QSortFilterProxyModel::filterAcceptsRow( source_row, source_parent ) )
+  const QString name = sourceModel()->data( index, Qt::DisplayRole ).toString();
+  if ( name.contains( mFilterString, Qt::CaseInsensitive ) )
   {
     return true;
   }
-  else
+
+  const QStringList tags = sourceModel()->data( index, QgsExpressionItem::SEARCH_TAGS_ROLE ).toStringList();
+  return std::any_of( tags.begin(), tags.end(), [this]( const QString & tag )
   {
-    const QStringList tags = sourceModel()->data( index, QgsExpressionItem::SEARCH_TAGS_ROLE ).toStringList();
-    for ( const QString &tag : tags )
-    {
-      if ( tag.contains( filterRegularExpression() ) )
-        return true;
-    }
-  }
-  return false;
+    return tag.contains( mFilterString, Qt::CaseInsensitive );
+  } );
+}
+
+void QgsExpressionItemSearchProxy::setFilterString( const QString &string )
+{
+  mFilterString = string;
+  invalidateFilter();
 }
 
 bool QgsExpressionItemSearchProxy::lessThan( const QModelIndex &left, const QModelIndex &right ) const

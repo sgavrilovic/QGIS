@@ -40,7 +40,14 @@ QVariant QgsTextEditWrapper::value() const
   {
     if ( config( QStringLiteral( "UseHtml" ) ).toBool() )
     {
-      v = mTextEdit->toHtml();
+      if ( mTextEdit->toPlainText().isEmpty() )
+      {
+        v = QString();
+      }
+      else
+      {
+        v = mTextEdit->toHtml();
+      }
     }
     else
     {
@@ -372,5 +379,6 @@ void QgsTextEditWrapper::setHint( const QString &hintText )
     mPlaceholderText = hintText;
   }
 
-  mLineEdit->setPlaceholderText( mPlaceholderText );
+  if ( mLineEdit )
+    mLineEdit->setPlaceholderText( mPlaceholderText );
 }

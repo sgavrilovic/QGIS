@@ -2538,40 +2538,51 @@ double QgsUnitTypes::fromUnitToUnitFactor( QgsUnitTypes::AngleUnit fromUnit, Qgs
 QString QgsUnitTypes::formatAngle( double angle, int decimals, QgsUnitTypes::AngleUnit unit )
 {
   QString unitLabel;
+  int decimalPlaces = 2;
 
   switch ( unit )
   {
     case AngleDegrees:
       unitLabel = QObject::tr( "°", "angle" );
+      decimalPlaces = 0;
       break;
     case AngleRadians:
       unitLabel = QObject::tr( " rad", "angle" );
+      decimalPlaces = 2;
       break;
     case AngleGon:
       unitLabel = QObject::tr( " gon", "angle" );
+      decimalPlaces = 0;
       break;
     case AngleMinutesOfArc:
       unitLabel = QObject::tr( "′", "angle minutes" );
+      decimalPlaces = 0;
       break;
     case AngleSecondsOfArc:
       unitLabel = QObject::tr( "″", "angle seconds" );
+      decimalPlaces = 0;
       break;
     case AngleTurn:
       unitLabel = QObject::tr( " tr", "angle turn" );
+      decimalPlaces = 3;
       break;
     case AngleMilliradiansSI:
       unitLabel = QObject::tr( " millirad", "angular mil SI" );
+      decimalPlaces = 0;
       break;
     case AngleMilNATO:
       unitLabel = QObject::tr( " mil", "angular mil NATO" );
+      decimalPlaces = 0;
       break;
     case AngleUnknownUnit:
       break;
   }
 
-  return QStringLiteral( "%L1%2" ).arg( angle, 0, 'f', decimals ).arg( unitLabel );
-}
+  if ( decimals >= 0 )
+    decimalPlaces = decimals;
 
+  return QStringLiteral( "%L1%2" ).arg( angle, 0, 'f', decimalPlaces ).arg( unitLabel );
+}
 
 QgsUnitTypes::DistanceValue QgsUnitTypes::scaledDistance( double distance, QgsUnitTypes::DistanceUnit unit, int decimals, bool keepBaseUnit )
 {
@@ -2879,7 +2890,15 @@ QString QgsUnitTypes::formatDistance( double distance, int decimals, QgsUnitType
   if ( dist.unit != DistanceUnknownUnit )
     unitText = QChar( ' ' ) + QgsUnitTypes::toAbbreviatedString( dist.unit );
 
-  return QStringLiteral( "%L1%2" ).arg( dist.value, 0, 'f', decimals ).arg( unitText );
+  if ( qgsDoubleNear( dist.value, 0 ) )
+  {
+    unitText = QChar( ' ' ) + QgsUnitTypes::toAbbreviatedString( unit );
+    return QStringLiteral( "%L1%2" ).arg( distance, 0, 'e', decimals ).arg( unitText );
+  }
+  else
+  {
+    return QStringLiteral( "%L1%2" ).arg( dist.value, 0, 'f', decimals ).arg( unitText );
+  }
 }
 
 QString QgsUnitTypes::formatArea( double area, int decimals, QgsUnitTypes::AreaUnit unit, bool keepBaseUnit )
@@ -2891,7 +2910,15 @@ QString QgsUnitTypes::formatArea( double area, int decimals, QgsUnitTypes::AreaU
   if ( areaValue.unit != AreaUnknownUnit )
     unitText = QChar( ' ' ) + QgsUnitTypes::toAbbreviatedString( areaValue.unit );
 
-  return QStringLiteral( "%L1%2" ).arg( areaValue.value, 0, 'f', decimals ).arg( unitText );
+  if ( qgsDoubleNear( areaValue.value, 0 ) )
+  {
+    unitText = QChar( ' ' ) + QgsUnitTypes::toAbbreviatedString( unit );
+    return QStringLiteral( "%L1%2" ).arg( area, 0, 'e', decimals ).arg( unitText );
+  }
+  else
+  {
+    return QStringLiteral( "%L1%2" ).arg( areaValue.value, 0, 'f', decimals ).arg( unitText );
+  }
 }
 
 QString QgsUnitTypes::encodeUnit( RenderUnit unit )

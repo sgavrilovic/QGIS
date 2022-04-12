@@ -26,7 +26,7 @@ if (WITH_GUI)
     raster/qgspostgresrastertemporalsettingswidget.cpp
   )
 
-  set(PG_UIS qgspostgresrastertemporalsettingswidgetbase.ui)
+  set(PG_UIS ${CMAKE_SOURCE_DIR}/src/ui/qgspostgresrastertemporalsettingswidgetbase.ui)
 endif()
 
 set(PG_HDRS
@@ -40,7 +40,7 @@ set(PG_HDRS
 # static library
 add_library (provider_postgres_a STATIC ${PG_SRCS} ${PG_HDRS})
 
-target_include_directories(provider_postgres_a SYSTEM PRIVATE
+target_include_directories(provider_postgres_a SYSTEM PUBLIC
   ${POSTGRES_INCLUDE_DIR}
 )
 

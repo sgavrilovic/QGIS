@@ -56,7 +56,7 @@ QgsWFSSourceSelect::QgsWFSSourceSelect( QWidget *parent, Qt::WindowFlags fl, Qgs
   : QgsAbstractDataSourceWidget( parent, fl, theWidgetMode )
 {
   setupUi( this );
-  QgsGui::instance()->enableAutoGeometryRestore( this );
+  QgsGui::enableAutoGeometryRestore( this );
 
   connect( cmbConnections, static_cast<void ( QComboBox::* )( int )>( &QComboBox::activated ), this, &QgsWFSSourceSelect::cmbConnections_activated );
   connect( btnSave, &QPushButton::clicked, this, &QgsWFSSourceSelect::btnSave_clicked );
@@ -333,6 +333,16 @@ void QgsWFSSourceSelect::oapifLandingPageReplyFinished()
 
   mAvailableCRS.clear();
   QString url( mOAPIFLandingPage->collectionsUrl() );
+
+  // Add back any extra query parameters, see issue GH #46535
+  const QgsWfsConnection connection( cmbConnections->currentText() );
+  const QUrl connectionUrl( connection.uri().param( QStringLiteral( "url" ) ) );
+  if ( ! connectionUrl.query().isEmpty() )
+  {
+    url.append( '?' );
+    url.append( connectionUrl.query() );
+  }
+
   mOAPIFLandingPage.reset();
   startOapifCollectionsRequest( url );
 }

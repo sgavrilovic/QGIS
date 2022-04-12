@@ -11,7 +11,6 @@
 
 
 
-
 class QgsPalLayerSettings
 {
 %Docstring(signature="appended")
@@ -136,6 +135,7 @@ Contains settings for how a map layer will be labeled.
       FontLetterSpacing,
       FontWordSpacing,
       FontBlendMode,
+      FontStretchFactor,
 
       // text formatting
       MultiLineWrapChar,
@@ -218,6 +218,7 @@ Contains settings for how a map layer will be labeled.
       // (data defined only)
       PositionX,
       PositionY,
+      PositionPoint,
       Hali,
       Vali,
       Rotation,
@@ -232,6 +233,8 @@ Contains settings for how a map layer will be labeled.
       PolygonLabelOutside,
       LineAnchorPercent,
       LineAnchorClipping,
+      LineAnchorType,
+      LineAnchorTextPoint,
 
       // rendering
       ScaleVisibility,
@@ -394,6 +397,24 @@ Sets the polygon placement ``flags``, which dictate how polygon labels can be pl
     double angleOffset;
 
     bool preserveRotation;
+
+    QgsUnitTypes::AngleUnit rotationUnit() const;
+%Docstring
+Unit for rotation of labels.
+
+.. seealso:: :py:func:`setRotationUnit`
+
+.. versionadded:: 3.22
+%End
+
+    void setRotationUnit( QgsUnitTypes::AngleUnit angleUnit );
+%Docstring
+Set unit for rotation of labels.
+
+.. seealso:: :py:func:`rotationUnit`
+
+.. versionadded:: 3.22
+%End
 
     double maxCurvedCharAngleIn;
 

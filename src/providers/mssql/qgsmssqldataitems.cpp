@@ -17,6 +17,7 @@
 
 #include "qgsmssqldataitems.h"
 #include "qgsmssqlconnection.h"
+#include "qgsmssqldatabase.h"
 
 #include "qgsmssqlgeomcolumntypethread.h"
 #include "qgslogger.h"
@@ -136,11 +137,11 @@ QVector<QgsDataItem *> QgsMssqlConnectionItem::createChildren()
 
   readConnectionSettings();
 
-  QSqlDatabase db = QgsMssqlConnection::getDatabase( mService, mHost, mDatabase, mUsername, mPassword );
+  std::shared_ptr<QgsMssqlDatabase> db = QgsMssqlDatabase::connectDb( mService, mHost, mDatabase, mUsername, mPassword );
 
-  if ( !QgsMssqlConnection::openDatabase( db ) )
+  if ( !db->isValid() )
   {
-    children.append( new QgsErrorItem( this, db.lastError().text(), mPath + "/error" ) );
+    children.append( new QgsErrorItem( this, db->errorText(), mPath + "/error" ) );
     setAsPopulated();
     return children;
   }
@@ -151,7 +152,7 @@ QVector<QgsDataItem *> QgsMssqlConnectionItem::createChildren()
   const bool disableInvalidGeometryHandling = QgsMssqlConnection::isInvalidGeometryHandlingDisabled( mName );
 
   // issue the sql query
-  QSqlQuery q = QSqlQuery( db );
+  QSqlQuery q = QSqlQuery( db->db() );
   q.setForwardOnly( true );
   ( void )q.exec( query );
 
@@ -675,7 +676,7 @@ int QgsMssqlDataItemProvider::capabilities() const
 QgsDataItem *QgsMssqlDataItemProvider::createDataItem( const QString &pathIn, QgsDataItem *parentItem )
 {
   Q_UNUSED( pathIn )
-  return new QgsMssqlRootItem( parentItem, QStringLiteral( "MSSQL" ), QStringLiteral( "mssql:" ) );
+  return new QgsMssqlRootItem( parentItem, QObject::tr( "MS SQL Server" ), QStringLiteral( "mssql:" ) );
 }
 
 

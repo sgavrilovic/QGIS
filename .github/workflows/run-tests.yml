@@ -27,7 +27,7 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      GH_WORKSPACE: ${{ github.workspace }} # used in docker compose
+      QGIS_WORKSPACE: ${{ github.workspace }} # used in docker compose
       RUN_FLAKY_TESTS: ${{ contains( github.event.pull_request.labels.*.name, 'run flaky tests') }}
 
     runs-on: ubuntu-latest
@@ -47,10 +47,10 @@ jobs:
             patch-qt-3d: true
             LD_PRELOAD: /lib/x86_64-linux-gnu/libSegFault.so
 
-          - distro-version: '21.04'
+          - distro-version: '21.10'
             qt-version: 5
             run-tests: false
-            docker-tag-suffix: _21.04
+            docker-tag-suffix: _21.10
             with-qt6: OFF
             with-qt5: ON
             with-3d: OFF
@@ -58,16 +58,16 @@ jobs:
             patch-qt-3d: false
             LD_PRELOAD: /lib/x86_64-linux-gnu/libSegFault.so
 
-          # - distro-version: 'rawhide'
-          #   qt-version: 6
-          #   run-tests: false
-          #   docker-tag-suffix: ''
-          #   with-qt6: ON
-          #   with-qt5: OFF
-          #   with-3d: OFF
-          #   with-quick: OFF
-          #   patch-qt-3d: false
-          #   LD_PRELOAD: ''
+          - distro-version: '34'
+            qt-version: 6
+            run-tests: true
+            docker-tag-suffix: ''
+            with-qt6: ON
+            with-qt5: OFF
+            with-3d: OFF
+            with-quick: OFF
+            patch-qt-3d: false
+            LD_PRELOAD: ''
 
 
       fail-fast: false
@@ -80,7 +80,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set vars
         env:
@@ -89,15 +89,17 @@ jobs:
           GITHUB_PR_NUMBER: ${{github.event.number}}
         run: |
           # Be aware that these instructions are duplicated in run-tests job
-          DOCKER_TAG=$(echo $( [[ ${GITHUB_EVENT_NAME} =~ ^pull_request$ ]] && echo ${GITHUB_BASE_REF} || echo ${GITHUB_REF##*/} ) | sed 's/^master$/latest/')${{ matrix.docker-tag-suffix }}
-          CTEST_BUILD_NAME=$( [[ ${GITHUB_EVENT_NAME} =~ ^pull_request$ ]] && echo "PR${GITHUB_PR_NUMBER}" || echo ${GITHUB_REF##*/} )"_${GITHUB_SHA}"
+          DOCKER_TAG=$(echo $( [[ ${GITHUB_EVENT_NAME} == pull_request ]] && echo ${GITHUB_BASE_REF} || echo ${GITHUB_REF##*/} ) | sed 's/^master$/latest/')${{ matrix.docker-tag-suffix }}
+          CTEST_BUILD_NAME=$( [[ ${GITHUB_EVENT_NAME} == pull_request ]] && echo "PR${GITHUB_PR_NUMBER}" || echo ${GITHUB_REF##*/} )"_${GITHUB_SHA}"
           echo "DOCKER_TAG=${DOCKER_TAG}" >> $GITHUB_ENV
           echo "CTEST_BUILD_NAME=${CTEST_BUILD_NAME}" >> $GITHUB_ENV
+          echo "QT_VERSION=${{ matrix.qt-version }}" >> $GITHUB_ENV
 
       - name: Print vars
         run: |
           echo DOCKER_TAG: ${DOCKER_TAG}
           echo CTEST_BUILD_NAME: ${CTEST_BUILD_NAME}
+          echo QT_VERSION: ${QT_VERSION}
 
       - name: Build Docker Container with Build Environment
         id: docker-build
@@ -173,7 +175,7 @@ jobs:
         if: ${{ matrix.run-tests }}
         run: tar --exclude='*.o' -cvzf build.tgz build
 
-      - uses: actions/upload-artifact@v2.2.4
+      - uses: actions/upload-artifact@v3
         if: ${{ matrix.run-tests }}
         with:
           name: build-${{ matrix.distro-version }}-qt${{ matrix.qt-version }}.tgz
@@ -278,7 +280,7 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      GH_WORKSPACE: ${{ github.workspace }} # used in docker compose
+      QGIS_WORKSPACE: ${{ github.workspace }} # used in docker compose
 
     runs-on: ubuntu-latest
 
@@ -298,19 +300,12 @@ jobs:
             test-batch: ORACLE
             docker-target: binary-for-oracle
 
-          # - distro-version: rawhide
-          #   qt-version: 6
-          #   test-batch: ALL_BUT_PROVIDERS
-          #   docker-target: single
+          - distro-version: '34'
+            qt-version: 6
+            test-batch: ALL_BUT_PROVIDERS
+            docker-target: single
 
       fail-fast: false
-
-    services:
-      # Run httpbin container for QgsNetwor* tests
-      httpbin:
-        image: kennethreitz/httpbin:latest
-        ports:
-          - 8082:80
 
     steps:
 
@@ -320,7 +315,7 @@ jobs:
           sudo df -h
 
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set vars
         env:
@@ -329,8 +324,9 @@ jobs:
           GITHUB_PR_NUMBER: ${{github.event.number}}
         run: |
           # Be aware that these instructions are duplicated in build job
-          CTEST_BUILD_NAME=$( [[ ${GITHUB_EVENT_NAME} =~ ^pull_request$ ]] && echo "PR${GITHUB_PR_NUMBER}" || echo ${GITHUB_REF##*/} )"_${GITHUB_SHA}_${{ matrix.test-batch }}"
+          CTEST_BUILD_NAME=$( [[ ${GITHUB_EVENT_NAME} == pull_request ]] && echo "PR${GITHUB_PR_NUMBER}" || echo ${GITHUB_REF##*/} )"_${GITHUB_SHA}_${{ matrix.test-batch }}"
           echo "CTEST_BUILD_NAME=${CTEST_BUILD_NAME}" >> $GITHUB_ENV
+          echo "QT_VERSION=${{ matrix.qt-version }}" >> $GITHUB_ENV
 
       - name: Print vars
         run: |
@@ -383,7 +379,6 @@ jobs:
         id: tests
         env:
           TEST_BATCH: ${{matrix.test-batch}}
-          QGIS_HTTPBIN_HOST: "localhost:8082"
         run: |
           DOCKERFILE=$( ( [[ ${{ matrix.test-batch }} == "ORACLE"   ]] && echo "docker-compose-testing-oracle.yml" ) \
                      || ( [[ ${{ matrix.test-batch }} == "POSTGRES" ]] && echo "docker-compose-testing-postgres.yml" ) \
@@ -391,4 +386,5 @@ jobs:
           [[ ${{ matrix.test-batch }} == "ORACLE" ]] && sudo rm -rf /usr/share/dotnet/sdk
           echo "TEST_BATCH=$TEST_BATCH"
           echo "DOCKERFILE=$DOCKERFILE"
+          mkdir -p /tmp/webdav_tests && chmod 777 /tmp/webdav_tests
           docker-compose -f .docker/$DOCKERFILE run qgis-deps /root/QGIS/.docker/docker-qgis-test.sh $TEST_BATCH

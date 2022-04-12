@@ -114,15 +114,26 @@ void QgsTileDownloadManagerReplyWorkerObject::replyFinished()
   if ( reply->error() == QNetworkReply::NoError )
   {
     ++mManager->mStats.networkRequestsOk;
-
     data = reply->readAll();
   }
   else
   {
     ++mManager->mStats.networkRequestsFailed;
+    const QString contentType = reply->header( QNetworkRequest::ContentTypeHeader ).toString();
+    if ( contentType.startsWith( QLatin1String( "text/plain" ) ) )
+      data = reply->readAll();
   }
 
-  emit finished( data, reply->error(), reply->errorString() );
+  QMap<QNetworkRequest::Attribute, QVariant> attributes;
+  attributes.insert( QNetworkRequest::SourceIsFromCacheAttribute, reply->attribute( QNetworkRequest::SourceIsFromCacheAttribute ) );
+  attributes.insert( QNetworkRequest::RedirectionTargetAttribute, reply->attribute( QNetworkRequest::RedirectionTargetAttribute ) );
+  attributes.insert( QNetworkRequest::HttpStatusCodeAttribute, reply->attribute( QNetworkRequest::HttpStatusCodeAttribute ) );
+  attributes.insert( QNetworkRequest::HttpReasonPhraseAttribute, reply->attribute( QNetworkRequest::HttpReasonPhraseAttribute ) );
+
+  QMap<QNetworkRequest::KnownHeaders, QVariant> headers;
+  headers.insert( QNetworkRequest::ContentTypeHeader, reply->header( QNetworkRequest::ContentTypeHeader ) );
+
+  emit finished( data, reply->url(), attributes, headers, reply->rawHeaderPairs(), reply->error(), reply->errorString() );
 
   reply->deleteLater();
 
@@ -220,7 +231,7 @@ bool QgsTileDownloadManager::waitForPendingRequests( int msec )
       if ( mQueue.isEmpty() )
         return true;
     }
-    QThread::currentThread()->usleep( 1000 );
+    QThread::usleep( 1000 );
   }
 
   return false;
@@ -247,7 +258,7 @@ void QgsTileDownloadManager::shutdown()
         return;  // the thread has stopped
     }
 
-    QThread::currentThread()->usleep( 1000 );
+    QThread::usleep( 1000 );
   }
 }
 
@@ -266,7 +277,7 @@ QgsTileDownloadManager::QueueEntry QgsTileDownloadManager::findEntryForRequest( 
 {
   for ( auto it = mQueue.constBegin(); it != mQueue.constEnd(); ++it )
   {
-    if ( it->request.url() == request.url() )
+    if ( it->request.url() == request.url() && it->request.rawHeader( "Range" ) == request.rawHeader( "Range" ) )
       return *it;
   }
   return QgsTileDownloadManager::QueueEntry();
@@ -276,7 +287,7 @@ void QgsTileDownloadManager::addEntry( const QgsTileDownloadManager::QueueEntry 
 {
   for ( auto it = mQueue.constBegin(); it != mQueue.constEnd(); ++it )
   {
-    Q_ASSERT( entry.request.url() != it->request.url() );
+    Q_ASSERT( entry.request.url() != it->request.url() || entry.request.rawHeader( "Range" ) != it->request.rawHeader( "Range" ) );
   }
 
   mQueue.append( entry );
@@ -286,7 +297,7 @@ void QgsTileDownloadManager::updateEntry( const QgsTileDownloadManager::QueueEnt
 {
   for ( auto it = mQueue.begin(); it != mQueue.end(); ++it )
   {
-    if ( entry.request.url() == it->request.url() )
+    if ( entry.request.url() == it->request.url() && entry.request.rawHeader( "Range" ) == it->request.rawHeader( "Range" ) )
     {
       *it = entry;
       return;
@@ -300,7 +311,7 @@ void QgsTileDownloadManager::removeEntry( const QNetworkRequest &request )
   int i = 0;
   for ( auto it = mQueue.constBegin(); it != mQueue.constEnd(); ++it, ++i )
   {
-    if ( it->request.url() == request.url() )
+    if ( it->request.url() == request.url() && it->request.rawHeader( "Range" ) == request.rawHeader( "Range" ) )
     {
       mQueue.removeAt( i );
       return;
@@ -336,13 +347,27 @@ QgsTileDownloadManagerReply::~QgsTileDownloadManagerReply()
   }
 }
 
-void QgsTileDownloadManagerReply::requestFinished( QByteArray data, QNetworkReply::NetworkError error, const QString &errorString )
+void QgsTileDownloadManagerReply::requestFinished( QByteArray data, QUrl url, const QMap<QNetworkRequest::Attribute, QVariant> &attributes, const QMap<QNetworkRequest::KnownHeaders, QVariant> &headers, const QList<QNetworkReply::RawHeaderPair> rawHeaderPairs, QNetworkReply::NetworkError error, const QString &errorString )
 {
   QgsDebugMsgLevel( QStringLiteral( "Tile download manager: reply finished: " ) + mRequest.url().toString(), 2 );
 
   mHasFinished = true;
   mData = data;
+  mUrl = url;
+  mAttributes = attributes;
+  mHeaders = headers;
+  mRawHeaderPairs = rawHeaderPairs;
   mError = error;
   mErrorString = errorString;
   emit finished();
+}
+
+QVariant QgsTileDownloadManagerReply::attribute( QNetworkRequest::Attribute code )
+{
+  return mAttributes.contains( code ) ? mAttributes.value( code ) : QVariant();
+}
+
+QVariant QgsTileDownloadManagerReply::header( QNetworkRequest::KnownHeaders header )
+{
+  return mHeaders.contains( header ) ? mHeaders.value( header ) : QVariant();
 }

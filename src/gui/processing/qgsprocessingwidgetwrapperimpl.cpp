@@ -62,6 +62,8 @@
 #include "qgsexpressioncontext.h"
 #include "qgsexpressioncontextutils.h"
 #include "qgsdoublevalidator.h"
+#include "qgsmaplayercombobox.h"
+#include "qgsannotationlayer.h"
 #include <QToolButton>
 #include <QLabel>
 #include <QHBoxLayout>
@@ -212,7 +214,8 @@ QStringList QgsProcessingBooleanWidgetWrapper::compatibleParameterTypes() const
          << QgsProcessingParameterMeshLayer::typeName()
          << QgsProcessingParameterExpression::typeName()
          << QgsProcessingParameterProviderConnection::typeName()
-         << QgsProcessingParameterPointCloudLayer::typeName();
+         << QgsProcessingParameterPointCloudLayer::typeName()
+         << QgsProcessingParameterAnnotationLayer::typeName();
 }
 
 QStringList QgsProcessingBooleanWidgetWrapper::compatibleOutputTypes() const
@@ -371,7 +374,8 @@ QStringList QgsProcessingCrsWidgetWrapper::compatibleParameterTypes() const
          << QgsProcessingParameterVectorLayer::typeName()
          << QgsProcessingParameterMeshLayer::typeName()
          << QgsProcessingParameterFeatureSource::typeName()
-         << QgsProcessingParameterPointCloudLayer::typeName();
+         << QgsProcessingParameterPointCloudLayer::typeName()
+         << QgsProcessingParameterAnnotationLayer::typeName();
 }
 
 QStringList QgsProcessingCrsWidgetWrapper::compatibleOutputTypes() const
@@ -696,8 +700,25 @@ QgsProcessingNumberParameterDefinitionWidget::QgsProcessingNumberParameterDefini
   if ( const QgsProcessingParameterNumber *numberParam = dynamic_cast<const QgsProcessingParameterNumber *>( definition ) )
   {
     mTypeComboBox->setCurrentIndex( mTypeComboBox->findData( numberParam->dataType() ) );
-    mMinLineEdit->setText( QLocale().toString( numberParam->minimum() ) );
-    mMaxLineEdit->setText( QLocale().toString( numberParam->maximum() ) );
+
+    if ( !qgsDoubleNear( numberParam->maximum(), std::numeric_limits<double>::max() ) )
+    {
+      mMaxLineEdit->setText( QLocale().toString( numberParam->maximum() ) );
+    }
+    else
+    {
+      mMaxLineEdit->clear();
+    }
+
+    if ( !qgsDoubleNear( numberParam->minimum(), std::numeric_limits<double>::lowest() ) )
+    {
+      mMinLineEdit->setText( QLocale().toString( numberParam->minimum() ) );
+    }
+    else
+    {
+      mMinLineEdit->clear();
+    }
+
     mDefaultLineEdit->setText( numberParam->defaultValueForGui().toString() );
   }
 
@@ -712,16 +733,22 @@ QgsProcessingParameterDefinition *QgsProcessingNumberParameterDefinitionWidget::
   QgsProcessingParameterNumber::Type dataType = static_cast< QgsProcessingParameterNumber::Type >( mTypeComboBox->currentData().toInt() );
   auto param = std::make_unique< QgsProcessingParameterNumber >( name, description, dataType, ok ? val : QVariant() );
 
-  val = QgsDoubleValidator::toDouble( mMinLineEdit->text( ), &ok );
-  if ( ok )
+  if ( !mMinLineEdit->text().trimmed().isEmpty() )
   {
-    param->setMinimum( val );
+    val = QgsDoubleValidator::toDouble( mMinLineEdit->text( ), &ok );
+    if ( ok )
+    {
+      param->setMinimum( val );
+    }
   }
 
-  val = QgsDoubleValidator::toDouble( mMaxLineEdit->text(), &ok );
-  if ( ok )
+  if ( !mMaxLineEdit->text().trimmed().isEmpty() )
   {
-    param->setMaximum( val );
+    val = QgsDoubleValidator::toDouble( mMaxLineEdit->text(), &ok );
+    if ( ok )
+    {
+      param->setMaximum( val );
+    }
   }
 
   param->setFlags( flags );
@@ -801,7 +828,7 @@ QWidget *QgsProcessingNumericWidgetWrapper::createWidget()
         if ( mDoubleSpinBox )
         {
           mDoubleSpinBox->setShowClearButton( true );
-          const double min = mDoubleSpinBox->minimum() - 1;
+          const double min = mDoubleSpinBox->minimum() - mDoubleSpinBox->singleStep();
           mDoubleSpinBox->setMinimum( min );
           mDoubleSpinBox->setValue( min );
         }
@@ -1267,6 +1294,9 @@ QgsProcessingDurationParameterDefinitionWidget::QgsProcessingDurationParameterDe
   mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalHours ), QgsUnitTypes::TemporalHours );
   mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalDays ), QgsUnitTypes::TemporalDays );
   mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalWeeks ), QgsUnitTypes::TemporalWeeks );
+  mUnitsCombo->addItem( tr( "years (365.25 days)" ), QgsUnitTypes::TemporalYears );
+  mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalDecades ), QgsUnitTypes::TemporalDecades );
+  mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalCenturies ), QgsUnitTypes::TemporalCenturies );
   vlayout->addWidget( mUnitsCombo );
 
   if ( const QgsProcessingParameterDuration *durationParam = dynamic_cast<const QgsProcessingParameterDuration *>( definition ) )
@@ -1324,7 +1354,6 @@ QgsAbstractProcessingParameterWidgetWrapper *QgsProcessingDurationWidgetWrapper:
 QWidget *QgsProcessingDurationWidgetWrapper::createWidget()
 {
   const QgsProcessingParameterDuration *durationDef = static_cast< const QgsProcessingParameterDuration * >( parameterDefinition() );
-  mBaseUnit = durationDef->defaultUnit();
 
   QWidget *spin = QgsProcessingNumericWidgetWrapper::createWidget();
   switch ( type() )
@@ -1339,6 +1368,9 @@ QWidget *QgsProcessingDurationWidgetWrapper::createWidget()
       mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalHours ), QgsUnitTypes::TemporalHours );
       mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalDays ), QgsUnitTypes::TemporalDays );
       mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalWeeks ), QgsUnitTypes::TemporalWeeks );
+      mUnitsCombo->addItem( tr( "years (365.25 days)" ), QgsUnitTypes::TemporalYears );
+      mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalDecades ), QgsUnitTypes::TemporalDecades );
+      mUnitsCombo->addItem( QgsUnitTypes::toString( QgsUnitTypes::TemporalCenturies ), QgsUnitTypes::TemporalCenturies );
 
       QHBoxLayout *layout = new QHBoxLayout();
       layout->addWidget( spin, 1 );
@@ -1348,7 +1380,7 @@ QWidget *QgsProcessingDurationWidgetWrapper::createWidget()
       layout->setContentsMargins( 0, 0, 0, 0 );
       w->setLayout( layout );
 
-      mUnitsCombo->setCurrentIndex( mUnitsCombo->findData( mBaseUnit ) );
+      mUnitsCombo->setCurrentIndex( mUnitsCombo->findData( durationDef->defaultUnit() ) );
       mUnitsCombo->show();
 
       return w;
@@ -1368,8 +1400,7 @@ QLabel *QgsProcessingDurationWidgetWrapper::createLabel()
 
   if ( type() == QgsProcessingGui::Modeler )
   {
-    const QgsProcessingParameterDuration *durationDef = static_cast< const QgsProcessingParameterDuration * >( parameterDefinition() );
-    label->setText( QStringLiteral( "%1 [%2]" ).arg( label->text(), QgsUnitTypes::toString( durationDef->defaultUnit() ) ) );
+    label->setText( QStringLiteral( "%1 [%2]" ).arg( label->text(), QgsUnitTypes::toString( mBaseUnit ) ) );
   }
 
   return label;
@@ -1386,6 +1417,20 @@ QVariant QgsProcessingDurationWidgetWrapper::widgetValue() const
   else
   {
     return val;
+  }
+}
+
+void QgsProcessingDurationWidgetWrapper::setWidgetValue( const QVariant &value, QgsProcessingContext &context )
+{
+  if ( mUnitsCombo )
+  {
+    QgsUnitTypes::TemporalUnit displayUnit = static_cast<QgsUnitTypes::TemporalUnit >( mUnitsCombo->currentData().toInt() );
+    const QVariant val = value.toDouble() * QgsUnitTypes::fromUnitToUnitFactor( mBaseUnit, displayUnit );
+    QgsProcessingNumericWidgetWrapper::setWidgetValue( val, context );
+  }
+  else
+  {
+    QgsProcessingNumericWidgetWrapper::setWidgetValue( value, context );
   }
 }
 
@@ -2453,8 +2498,40 @@ void QgsProcessingEnumPanelWidget::showDialog()
 
 void QgsProcessingEnumPanelWidget::updateSummaryText()
 {
-  if ( mParam )
-    mLineEdit->setText( tr( "%1 options selected" ).arg( mValue.count() ) );
+  if ( !mParam )
+    return;
+
+  if ( mValue.empty() )
+  {
+    mLineEdit->setText( tr( "%1 options selected" ).arg( 0 ) );
+  }
+  else
+  {
+    QStringList values;
+    values.reserve( mValue.size() );
+    if ( mParam->usesStaticStrings() )
+    {
+      for ( const QVariant &val : std::as_const( mValue ) )
+      {
+        values << val.toString();
+      }
+    }
+    else
+    {
+      const QStringList options = mParam->options();
+      for ( const QVariant &val : std::as_const( mValue ) )
+      {
+        const int i = val.toInt();
+        values << ( options.size() > i ? options.at( i ) : QString() );
+      }
+    }
+
+    const QString concatenated = values.join( tr( "," ) );
+    if ( concatenated.length() < 100 )
+      mLineEdit->setText( concatenated );
+    else
+      mLineEdit->setText( tr( "%n option(s) selected", nullptr, mValue.count() ) );
+  }
 }
 
 
@@ -2658,12 +2735,15 @@ QWidget *QgsProcessingEnumWidgetWrapper::createWidget()
         if ( expParam->flags() & QgsProcessingParameterDefinition::FlagOptional )
           mComboBox->addItem( tr( "[Not selected]" ), QVariant() );
         const QStringList options = expParam->options();
+        const QVariantList iconList = expParam->metadata().value( QStringLiteral( "widget_wrapper" ) ).toMap().value( QStringLiteral( "icons" ) ).toList();
         for ( int i = 0; i < options.count(); ++i )
         {
+          const QIcon icon = iconList.value( i ).value< QIcon >();
+
           if ( expParam->usesStaticStrings() )
-            mComboBox->addItem( options.at( i ), options.at( i ) );
+            mComboBox->addItem( icon, options.at( i ), options.at( i ) );
           else
-            mComboBox->addItem( options.at( i ), i );
+            mComboBox->addItem( icon, options.at( i ), i );
         }
 
         mComboBox->setToolTip( parameterDefinition()->toolTip() );
@@ -4036,7 +4116,7 @@ QgsProcessingFieldPanelWidget::QgsProcessingFieldPanelWidget( QWidget *parent, c
 
   if ( mParam )
   {
-    mLineEdit->setText( tr( "%1 options selected" ).arg( 0 ) );
+    mLineEdit->setText( tr( "%n field(s) selected", nullptr, 0 ) );
   }
 
   connect( mToolButton, &QToolButton::clicked, this, &QgsProcessingFieldPanelWidget::showDialog );
@@ -4103,8 +4183,28 @@ void QgsProcessingFieldPanelWidget::showDialog()
 
 void QgsProcessingFieldPanelWidget::updateSummaryText()
 {
-  if ( mParam )
-    mLineEdit->setText( tr( "%1 options selected" ).arg( mValue.count() ) );
+  if ( !mParam )
+    return;
+
+  if ( mValue.empty() )
+  {
+    mLineEdit->setText( tr( "%n field(s) selected", nullptr, 0 ) );
+  }
+  else
+  {
+    QStringList values;
+    values.reserve( mValue.size() );
+    for ( const QVariant &val : std::as_const( mValue ) )
+    {
+      values << val.toString();
+    }
+
+    const QString concatenated = values.join( tr( "," ) );
+    if ( concatenated.length() < 100 )
+      mLineEdit->setText( concatenated );
+    else
+      mLineEdit->setText( tr( "%n field(s) selected", nullptr, mValue.count() ) );
+  }
 }
 
 
@@ -5750,8 +5850,8 @@ QStringList QgsProcessingExtentWidgetWrapper::compatibleParameterTypes() const
          << QgsProcessingParameterRasterLayer::typeName()
          << QgsProcessingParameterVectorLayer::typeName()
          << QgsProcessingParameterMeshLayer::typeName()
-         << QgsProcessingParameterPointCloudLayer::typeName();
-
+         << QgsProcessingParameterPointCloudLayer::typeName()
+         << QgsProcessingParameterAnnotationLayer::typeName();
 }
 
 QStringList QgsProcessingExtentWidgetWrapper::compatibleOutputTypes() const
@@ -5806,6 +5906,7 @@ QgsProcessingMapLayerParameterDefinitionWidget::QgsProcessingMapLayerParameterDe
   mLayerTypeComboBox->addItem( tr( "Mesh" ), QgsProcessing::TypeMesh );
   mLayerTypeComboBox->addItem( tr( "Plugin" ), QgsProcessing::TypePlugin );
   mLayerTypeComboBox->addItem( tr( "Point Cloud" ), QgsProcessing::TypePointCloud );
+  mLayerTypeComboBox->addItem( tr( "Annotation" ), QgsProcessing::TypeAnnotation );
 
   if ( const QgsProcessingParameterMapLayer *layerParam = dynamic_cast<const QgsProcessingParameterMapLayer *>( definition ) )
   {
@@ -5901,6 +6002,7 @@ QStringList QgsProcessingMapLayerWidgetWrapper::compatibleParameterTypes() const
          << QgsProcessingParameterVectorLayer::typeName()
          << QgsProcessingParameterMapLayer::typeName()
          << QgsProcessingParameterPointCloudLayer::typeName()
+         << QgsProcessingParameterAnnotationLayer::typeName()
          << QgsProcessingParameterString::typeName()
          << QgsProcessingParameterExpression::typeName();
 }
@@ -5918,6 +6020,11 @@ QStringList QgsProcessingMapLayerWidgetWrapper::compatibleOutputTypes() const
 QString QgsProcessingMapLayerWidgetWrapper::modelerExpressionFormatString() const
 {
   return tr( "path to a map layer" );
+}
+
+QgsProcessingModelChildParameterSource::Source QgsProcessingMapLayerWidgetWrapper::defaultModelSource( const QgsProcessingParameterDefinition * ) const
+{
+  return QgsProcessingModelChildParameterSource::ModelParameter;
 }
 
 QString QgsProcessingMapLayerWidgetWrapper::parameterType() const
@@ -6268,7 +6375,7 @@ QgsProcessingRasterBandPanelWidget::QgsProcessingRasterBandPanelWidget( QWidget 
 
   if ( mParam )
   {
-    mLineEdit->setText( tr( "%1 bands selected" ).arg( 0 ) );
+    mLineEdit->setText( tr( "%n band(s) selected", nullptr, 0 ) );
   }
 
   connect( mToolButton, &QToolButton::clicked, this, &QgsProcessingRasterBandPanelWidget::showDialog );
@@ -6343,7 +6450,7 @@ void QgsProcessingRasterBandPanelWidget::showDialog()
 void QgsProcessingRasterBandPanelWidget::updateSummaryText()
 {
   if ( mParam )
-    mLineEdit->setText( tr( "%1 bands selected" ).arg( mValue.count() ) );
+    mLineEdit->setText( tr( "%n band(s) selected", nullptr, mValue.count() ) );
 }
 
 
@@ -6717,7 +6824,7 @@ QgsProcessingMultipleLayerPanelWidget::QgsProcessingMultipleLayerPanelWidget( QW
 
   if ( mParam )
   {
-    mLineEdit->setText( tr( "%1 inputs selected" ).arg( 0 ) );
+    mLineEdit->setText( tr( "%n input(s) selected", nullptr, 0 ) );
   }
 
   connect( mToolButton, &QToolButton::clicked, this, &QgsProcessingMultipleLayerPanelWidget::showDialog );
@@ -6804,6 +6911,15 @@ void QgsProcessingMultipleLayerPanelWidget::setModel( QgsProcessingModelAlgorith
                       << QgsProcessingParameterFile::typeName(),
                       QStringList() << QgsProcessingOutputFile::typeName()
                       << QgsProcessingOutputMapLayer::typeName()
+                      << QgsProcessingOutputMultipleLayers::typeName() );
+      break;
+    }
+
+    case QgsProcessing::TypeAnnotation:
+    {
+      mModelSources = model->availableSourcesForChild( modelChildAlgorithmID, QStringList() << QgsProcessingParameterAnnotationLayer::typeName()
+                      << QgsProcessingParameterMultipleLayers::typeName(),
+                      QStringList() << QgsProcessingOutputMapLayer::typeName()
                       << QgsProcessingOutputMultipleLayers::typeName() );
       break;
     }
@@ -6925,7 +7041,7 @@ void QgsProcessingMultipleLayerPanelWidget::showDialog()
 void QgsProcessingMultipleLayerPanelWidget::updateSummaryText()
 {
   if ( mParam )
-    mLineEdit->setText( tr( "%1 inputs selected" ).arg( mValue.count() ) );
+    mLineEdit->setText( tr( "%n input(s) selected", nullptr, mValue.count() ) );
 }
 
 //
@@ -6951,6 +7067,7 @@ QgsProcessingMultipleLayerParameterDefinitionWidget::QgsProcessingMultipleLayerP
   mLayerTypeComboBox->addItem( tr( "Mesh" ), QgsProcessing::TypeMesh );
   mLayerTypeComboBox->addItem( tr( "Plugin" ), QgsProcessing::TypePlugin );
   mLayerTypeComboBox->addItem( tr( "Point Cloud" ), QgsProcessing::TypePointCloud );
+  mLayerTypeComboBox->addItem( tr( "Annotation" ), QgsProcessing::TypeAnnotation );
   if ( const QgsProcessingParameterMultipleLayers *layersParam = dynamic_cast<const QgsProcessingParameterMultipleLayers *>( definition ) )
     mLayerTypeComboBox->setCurrentIndex( mLayerTypeComboBox->findData( layersParam->layerType() ) );
 
@@ -7133,6 +7250,146 @@ QgsProcessingAbstractParameterDefinitionWidget *QgsProcessingPointCloudLayerWidg
 }
 
 
+//
+// QgsProcessingAnnotationLayerWidgetWrapper
+//
+
+QgsProcessingAnnotationLayerWidgetWrapper::QgsProcessingAnnotationLayerWidgetWrapper( const QgsProcessingParameterDefinition *parameter, QgsProcessingGui::WidgetType type, QWidget *parent )
+  : QgsAbstractProcessingParameterWidgetWrapper( parameter, type, parent )
+{
+
+}
+
+QStringList QgsProcessingAnnotationLayerWidgetWrapper::compatibleParameterTypes() const
+{
+  return QStringList()
+         << QgsProcessingParameterAnnotationLayer::typeName()
+         << QgsProcessingParameterMapLayer::typeName()
+         << QgsProcessingParameterString::typeName()
+         << QgsProcessingParameterExpression::typeName();
+}
+
+QStringList QgsProcessingAnnotationLayerWidgetWrapper::compatibleOutputTypes() const
+{
+  return QStringList()
+         << QgsProcessingOutputString::typeName()
+         << QgsProcessingOutputMapLayer::typeName();
+}
+
+QString QgsProcessingAnnotationLayerWidgetWrapper::modelerExpressionFormatString() const
+{
+  return tr( "name of an annotation layer, or \"main\" for the main annotation layer" );
+}
+
+QString QgsProcessingAnnotationLayerWidgetWrapper::parameterType() const
+{
+  return QgsProcessingParameterAnnotationLayer::typeName();
+}
+
+QgsAbstractProcessingParameterWidgetWrapper *QgsProcessingAnnotationLayerWidgetWrapper::createWidgetWrapper( const QgsProcessingParameterDefinition *parameter, QgsProcessingGui::WidgetType type )
+{
+  return new QgsProcessingAnnotationLayerWidgetWrapper( parameter, type );
+}
+
+QgsProcessingAbstractParameterDefinitionWidget *QgsProcessingAnnotationLayerWidgetWrapper::createParameterDefinitionWidget( QgsProcessingContext &context, const QgsProcessingParameterWidgetContext &widgetContext, const QgsProcessingParameterDefinition *definition, const QgsProcessingAlgorithm *algorithm )
+{
+  Q_UNUSED( context );
+  Q_UNUSED( widgetContext );
+  Q_UNUSED( definition );
+  Q_UNUSED( algorithm );
+
+  return nullptr;
+}
+
+void QgsProcessingAnnotationLayerWidgetWrapper::setWidgetContext( const QgsProcessingParameterWidgetContext &context )
+{
+  QgsAbstractProcessingParameterWidgetWrapper::setWidgetContext( context );
+  if ( mComboBox )
+  {
+    if ( mWidgetContext.project() )
+      mComboBox->setAdditionalLayers( { mWidgetContext.project()->mainAnnotationLayer() } );
+  }
+}
+
+QWidget *QgsProcessingAnnotationLayerWidgetWrapper::createWidget()
+{
+  mComboBox = new QgsMapLayerComboBox( );
+  mComboBox->setFilters( QgsMapLayerProxyModel::AnnotationLayer );
+
+  switch ( type() )
+  {
+    case QgsProcessingGui::Standard:
+    case QgsProcessingGui::Batch:
+      break;
+    case QgsProcessingGui::Modeler:
+      mComboBox->setEditable( true );
+      break;
+  }
+
+  mComboBox->setToolTip( parameterDefinition()->toolTip() );
+
+  if ( mWidgetContext.project() )
+    mComboBox->setAdditionalLayers( { mWidgetContext.project()->mainAnnotationLayer() } );
+
+  if ( parameterDefinition()->flags() & QgsProcessingParameterDefinition::FlagOptional )
+    mComboBox->setAllowEmptyLayer( true );
+
+  connect( mComboBox, &QgsMapLayerComboBox::layerChanged, this, [ = ]()
+  {
+    if ( mBlockSignals )
+      return;
+
+    emit widgetValueHasChanged( this );
+  } );
+
+  setWidgetContext( widgetContext() );
+  return mComboBox;
+}
+
+void QgsProcessingAnnotationLayerWidgetWrapper::setWidgetValue( const QVariant &value, QgsProcessingContext &context )
+{
+  if ( mComboBox )
+  {
+    if ( !value.isValid()  && parameterDefinition()->flags() & QgsProcessingParameterDefinition::FlagOptional )
+    {
+      mComboBox->setLayer( nullptr );
+      return;
+    }
+
+    QVariant val = value;
+    if ( val.canConvert<QgsProperty>() )
+    {
+      if ( val.value< QgsProperty >().propertyType() == QgsProperty::StaticProperty )
+      {
+        val = val.value< QgsProperty >().staticValue();
+      }
+      else
+      {
+        val = val.value< QgsProperty >().valueAsString( context.expressionContext(), parameterDefinition()->defaultValueForGui().toString() );
+      }
+    }
+
+    QgsMapLayer *layer = qobject_cast< QgsMapLayer * >( val.value< QObject * >() );
+    if ( !layer && val.type() == QVariant::String )
+    {
+      layer = QgsProcessingUtils::mapLayerFromString( val.toString(), context, false, QgsProcessingUtils::LayerHint::Annotation );
+    }
+
+    if ( layer )
+    {
+      mComboBox->setLayer( layer );
+    }
+  }
+}
+
+QVariant QgsProcessingAnnotationLayerWidgetWrapper::widgetValue() const
+{
+  return mComboBox && mComboBox->currentLayer() ?
+         ( mWidgetContext.project() ? ( mComboBox->currentLayer() == mWidgetContext.project()->mainAnnotationLayer() ? QStringLiteral( "main" ) : mComboBox->currentLayer()->id() ) : mComboBox->currentLayer()->id() )
+         : QVariant();
+}
+
+
 
 //
 // QgsProcessingOutputWidgetWrapper
@@ -7170,7 +7427,8 @@ QWidget *QgsProcessingOutputWidgetWrapper::createWidget()
       if ( type() == QgsProcessingGui::Standard
            && ( destParam->type() == QgsProcessingParameterRasterDestination::typeName() ||
                 destParam->type() == QgsProcessingParameterFeatureSink::typeName() ||
-                destParam->type() == QgsProcessingParameterVectorDestination::typeName() ) )
+                destParam->type() == QgsProcessingParameterVectorDestination::typeName() ||
+                destParam->type() == QgsProcessingParameterPointCloudDestination::typeName() ) )
         mOutputWidget->addOpenAfterRunningOption();
 
       return mOutputWidget;
@@ -7275,7 +7533,7 @@ QString QgsProcessingVectorDestinationWidgetWrapper::modelerExpressionFormatStri
 }
 
 //
-// QgsProcessingFeatureSinkWidgetWrapper
+// QgsProcessingRasterDestinationWidgetWrapper
 //
 
 QgsProcessingRasterDestinationWidgetWrapper::QgsProcessingRasterDestinationWidgetWrapper( const QgsProcessingParameterDefinition *parameter, QgsProcessingGui::WidgetType type, QWidget *parent )
@@ -7295,6 +7553,31 @@ QgsAbstractProcessingParameterWidgetWrapper *QgsProcessingRasterDestinationWidge
 }
 
 QString QgsProcessingRasterDestinationWidgetWrapper::modelerExpressionFormatString() const
+{
+  return tr( "path to layer destination" );
+}
+
+//
+// QgsProcessingPointCloudDestinationWidgetWrapper
+//
+
+QgsProcessingPointCloudDestinationWidgetWrapper::QgsProcessingPointCloudDestinationWidgetWrapper( const QgsProcessingParameterDefinition *parameter, QgsProcessingGui::WidgetType type, QWidget *parent )
+  : QgsProcessingOutputWidgetWrapper( parameter, type, parent )
+{
+
+}
+
+QString QgsProcessingPointCloudDestinationWidgetWrapper::parameterType() const
+{
+  return QgsProcessingParameterPointCloudDestination::typeName();
+}
+
+QgsAbstractProcessingParameterWidgetWrapper *QgsProcessingPointCloudDestinationWidgetWrapper::createWidgetWrapper( const QgsProcessingParameterDefinition *parameter, QgsProcessingGui::WidgetType type )
+{
+  return new QgsProcessingPointCloudDestinationWidgetWrapper( parameter, type );
+}
+
+QString QgsProcessingPointCloudDestinationWidgetWrapper::modelerExpressionFormatString() const
 {
   return tr( "path to layer destination" );
 }

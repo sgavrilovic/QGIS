@@ -110,24 +110,6 @@ bool QgsPythonUtilsImpl::checkSystemImports()
     return false;
   }
 
-  // set PyQt api versions
-  for ( const QString &clsName :
-        {
-          QStringLiteral( "QDate" ),
-          QStringLiteral( "QDateTime" ),
-          QStringLiteral( "QString" ),
-          QStringLiteral( "QTextStream" ),
-          QStringLiteral( "QTime" ),
-          QStringLiteral( "QUrl" ),
-          QStringLiteral( "QVariant" )
-        } )
-  {
-    if ( !runString( QStringLiteral( "sip.setapi('%1', 2)" ).arg( clsName ),
-                     QObject::tr( "Couldn't set SIP API versions." ) + '\n' + QObject::tr( "Python support will be disabled." ) ) )
-    {
-      return false;
-    }
-  }
   // import Qt bindings
   if ( !runString( QStringLiteral( "from PyQt5 import QtCore, QtGui" ),
                    QObject::tr( "Couldn't load PyQt." ) + '\n' + QObject::tr( "Python support will be disabled." ) ) )
@@ -227,13 +209,23 @@ void QgsPythonUtilsImpl::doCustomImports()
   }
 }
 
-void QgsPythonUtilsImpl::initPython( QgisInterface *interface, const bool installErrorHook )
+void QgsPythonUtilsImpl::initPython( QgisInterface *interface, const bool installErrorHook, const QString &faultHandlerLogPath )
 {
   init();
   if ( !checkSystemImports() )
   {
     exitPython();
     return;
+  }
+
+  if ( !faultHandlerLogPath.isEmpty() )
+  {
+    runString( QStringLiteral( "import faulthandler" ) );
+    QString escapedPath = faultHandlerLogPath;
+    escapedPath.replace( '\\', QLatin1String( "\\\\" ) );
+    escapedPath.replace( '\'', QLatin1String( "\\'" ) );
+    runString( QStringLiteral( "fault_handler_file=open('%1', 'wt')" ).arg( escapedPath ) );
+    runString( QStringLiteral( "faulthandler.enable(file=fault_handler_file)" ) );
   }
 
   if ( interface )
@@ -623,7 +615,7 @@ QStringList QgsPythonUtilsImpl::extraPluginsPaths() const
 
 QStringList QgsPythonUtilsImpl::pluginList()
 {
-  runString( QStringLiteral( "qgis.utils.updateAvailablePlugins()" ) );
+  runString( QStringLiteral( "qgis.utils.updateAvailablePlugins(sort_by_dependencies=True)" ) );
 
   QString output;
   evalString( QStringLiteral( "'\\n'.join(qgis.utils.available_plugins)" ), output );
@@ -645,7 +637,7 @@ QString QgsPythonUtilsImpl::getPluginMetadata( const QString &pluginName, const 
 
 bool QgsPythonUtilsImpl::pluginHasProcessingProvider( const QString &pluginName )
 {
-  return getPluginMetadata( pluginName, QStringLiteral( "hasProcessingProvider" ) ).compare( QLatin1String( "yes" ), Qt::CaseInsensitive ) == 0;
+  return getPluginMetadata( pluginName, QStringLiteral( "hasProcessingProvider" ) ).compare( QLatin1String( "yes" ), Qt::CaseInsensitive ) == 0 || getPluginMetadata( pluginName, QStringLiteral( "hasProcessingProvider" ) ).compare( QLatin1String( "true" ), Qt::CaseInsensitive ) == 0;
 }
 
 bool QgsPythonUtilsImpl::loadPlugin( const QString &packageName )

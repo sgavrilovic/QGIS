@@ -61,8 +61,8 @@ QString QgsProcessingParameterMeshDatasetGroups::asPythonString( QgsProcessing::
   {
     case QgsProcessing::PythonQgsProcessingAlgorithmSubclass:
     {
-      QString code = QStringLiteral( "QgsProcessingParameterMeshDatasetGroups('%1', '%2'" )
-                     .arg( name(), description() );
+      QString code = QStringLiteral( "QgsProcessingParameterMeshDatasetGroups('%1', %2" )
+                     .arg( name(), QgsProcessingUtils::stringToPythonLiteral( description() ) );
       if ( !mMeshLayerParameterName.isEmpty() )
         code += QStringLiteral( ", meshLayerParameterName=%1" ).arg( QgsProcessingUtils::stringToPythonLiteral( mMeshLayerParameterName ) );
 
@@ -77,7 +77,7 @@ QString QgsProcessingParameterMeshDatasetGroups::asPythonString( QgsProcessing::
         dt.append( QStringLiteral( "QgsMeshDatasetGroupMetadata.DataOnEdges" ) );
       if ( !dt.isEmpty() )
       {
-        code += QLatin1String( ", dataType=[" );
+        code += QLatin1String( ", supportedDataType=[" );
         code += dt.join( ',' );
         code += ']';
       }
@@ -307,8 +307,6 @@ bool QgsProcessingParameterMeshDatasetTime::valueIsAcceptable( const QVariant &i
 {
   if ( !input.isValid() )
     return allowEmpty;
-
-  const QDateTime timeDate = input.toDateTime();
 
   if ( input.toDateTime().isValid() )
     return true;

@@ -467,8 +467,10 @@ void QgsLayerTreeView::addIndicator( QgsLayerTreeNode *node, QgsLayerTreeViewInd
     connect( indicator, &QgsLayerTreeViewIndicator::changed, this, [ = ]
     {
       update();
+      viewport()->repaint();
     } );
     update();
+    viewport()->repaint(); //update() does not automatically trigger a repaint()
   }
 }
 
@@ -710,7 +712,7 @@ QModelIndex QgsLayerTreeView::node2sourceIndex( QgsLayerTreeNode *node ) const
 
 QgsLayerTreeModelLegendNode *QgsLayerTreeView::index2legendNode( const QModelIndex &index ) const
 {
-  return layerTreeModel()->index2legendNode( mProxyModel->mapToSource( index ) );
+  return QgsLayerTreeModel::index2legendNode( mProxyModel->mapToSource( index ) );
 }
 
 QModelIndex QgsLayerTreeView::legendNode2index( QgsLayerTreeModelLegendNode *legendNode )

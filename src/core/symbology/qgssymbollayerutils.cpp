@@ -19,6 +19,7 @@
 #include "qgssymbollayerregistry.h"
 #include "qgssymbol.h"
 #include "qgscolorramp.h"
+#include "qgscolorrampimpl.h"
 #include "qgsexpression.h"
 #include "qgsexpressionnode.h"
 #include "qgspainteffect.h"
@@ -42,6 +43,7 @@
 #include "qgsmarkersymbol.h"
 #include "qgsfillsymbol.h"
 #include "qgssymbollayerreference.h"
+#include "qgsmarkersymbollayer.h"
 
 #include <QColor>
 #include <QFont>
@@ -387,6 +389,34 @@ Qt::BrushStyle QgsSymbolLayerUtils::decodeSldBrushStyle( const QString &str )
   return Qt::NoBrush;
 }
 
+Qgis::SymbolCoordinateReference QgsSymbolLayerUtils::decodeCoordinateReference( const QString &string, bool *ok )
+{
+  const QString compareString = string.trimmed();
+  if ( ok )
+    *ok = true;
+
+  if ( compareString.compare( QLatin1String( "feature" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::SymbolCoordinateReference::Feature;
+  else if ( compareString.compare( QLatin1String( "viewport" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::SymbolCoordinateReference::Viewport;
+
+  if ( ok )
+    *ok = false;
+  return  Qgis::SymbolCoordinateReference::Feature;
+}
+
+QString QgsSymbolLayerUtils::encodeCoordinateReference( Qgis::SymbolCoordinateReference coordinateReference )
+{
+  switch ( coordinateReference )
+  {
+    case Qgis::SymbolCoordinateReference::Feature:
+      return QStringLiteral( "feature" );
+    case Qgis::SymbolCoordinateReference::Viewport:
+      return QStringLiteral( "viewport" );
+  }
+  return QString(); // no warnings
+}
+
 QgsArrowSymbolLayer::HeadType QgsSymbolLayerUtils::decodeArrowHeadType( const QVariant &value, bool *ok )
 {
   if ( ok )
@@ -435,6 +465,74 @@ QgsArrowSymbolLayer::ArrowType QgsSymbolLayerUtils::decodeArrowType( const QVari
   if ( ok )
     *ok = false;
   return QgsArrowSymbolLayer::ArrowPlain;
+}
+
+Qgis::MarkerClipMode QgsSymbolLayerUtils::decodeMarkerClipMode( const QString &string, bool *ok )
+{
+  const QString compareString = string.trimmed();
+  if ( ok )
+    *ok = true;
+
+  if ( compareString.compare( QLatin1String( "no" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::MarkerClipMode::NoClipping;
+  else if ( compareString.compare( QLatin1String( "shape" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::MarkerClipMode::Shape;
+  else if ( compareString.compare( QLatin1String( "centroid_within" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::MarkerClipMode::CentroidWithin;
+  else if ( compareString.compare( QLatin1String( "completely_within" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::MarkerClipMode::CompletelyWithin;
+
+  if ( ok )
+    *ok = false;
+  return  Qgis::MarkerClipMode::Shape;
+}
+
+QString QgsSymbolLayerUtils::encodeMarkerClipMode( Qgis::MarkerClipMode mode )
+{
+  switch ( mode )
+  {
+    case Qgis::MarkerClipMode::NoClipping:
+      return QStringLiteral( "no" );
+    case Qgis::MarkerClipMode::Shape:
+      return QStringLiteral( "shape" );
+    case Qgis::MarkerClipMode::CentroidWithin:
+      return QStringLiteral( "centroid_within" );
+    case Qgis::MarkerClipMode::CompletelyWithin:
+      return QStringLiteral( "completely_within" );
+  }
+  return QString(); // no warnings
+}
+
+Qgis::LineClipMode QgsSymbolLayerUtils::decodeLineClipMode( const QString &string, bool *ok )
+{
+  const QString compareString = string.trimmed();
+  if ( ok )
+    *ok = true;
+
+  if ( compareString.compare( QLatin1String( "no" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::LineClipMode::NoClipping;
+  else if ( compareString.compare( QLatin1String( "during_render" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::LineClipMode::ClipPainterOnly;
+  else if ( compareString.compare( QLatin1String( "before_render" ), Qt::CaseInsensitive ) == 0 )
+    return Qgis::LineClipMode::ClipToIntersection;
+
+  if ( ok )
+    *ok = false;
+  return  Qgis::LineClipMode::ClipPainterOnly;
+}
+
+QString QgsSymbolLayerUtils::encodeLineClipMode( Qgis::LineClipMode mode )
+{
+  switch ( mode )
+  {
+    case Qgis::LineClipMode::NoClipping:
+      return QStringLiteral( "no" );
+    case Qgis::LineClipMode::ClipPainterOnly:
+      return QStringLiteral( "during_render" );
+    case Qgis::LineClipMode::ClipToIntersection:
+      return QStringLiteral( "before_render" );
+  }
+  return QString(); // no warnings
 }
 
 QString QgsSymbolLayerUtils::encodePoint( QPointF point )
@@ -784,7 +882,10 @@ QPixmap QgsSymbolLayerUtils::symbolPreviewPixmap( const QgsSymbol *symbol, QSize
   if ( customContext )
     customContext->setPainterFlagsUsingContext( &painter );
   else
+  {
     painter.setRenderHint( QPainter::Antialiasing );
+    painter.setRenderHint( QPainter::SmoothPixmapTransform );
+  }
 
   if ( customContext )
   {
@@ -842,7 +943,7 @@ double QgsSymbolLayerUtils::estimateMaxSymbolBleed( QgsSymbol *symbol, const Qgs
   return maxBleed;
 }
 
-QPicture QgsSymbolLayerUtils::symbolLayerPreviewPicture( const QgsSymbolLayer *layer, QgsUnitTypes::RenderUnit units, QSize size, const QgsMapUnitScale & )
+QPicture QgsSymbolLayerUtils::symbolLayerPreviewPicture( const QgsSymbolLayer *layer, QgsUnitTypes::RenderUnit units, QSize size, const QgsMapUnitScale &, Qgis::SymbolType parentSymbolType )
 {
   QPicture picture;
   QPainter painter;
@@ -850,15 +951,35 @@ QPicture QgsSymbolLayerUtils::symbolLayerPreviewPicture( const QgsSymbolLayer *l
   painter.setRenderHint( QPainter::Antialiasing );
   QgsRenderContext renderContext = QgsRenderContext::fromQPainter( &painter );
   renderContext.setForceVectorOutput( true );
-  renderContext.setFlag( QgsRenderContext::RenderSymbolPreview, true );
+  renderContext.setFlag( Qgis::RenderContextFlag::RenderSymbolPreview, true );
+  renderContext.setFlag( Qgis::RenderContextFlag::Antialiasing, true );
+  renderContext.setFlag( Qgis::RenderContextFlag::HighQualityImageTransforms, true );
+  renderContext.setPainterFlagsUsingContext( &painter );
+
   QgsSymbolRenderContext symbolContext( renderContext, units, 1.0, false, Qgis::SymbolRenderHints(), nullptr );
+
+  switch ( parentSymbolType )
+  {
+    case Qgis::SymbolType::Marker:
+      symbolContext.setOriginalGeometryType( QgsWkbTypes::PointGeometry );
+      break;
+    case Qgis::SymbolType::Line:
+      symbolContext.setOriginalGeometryType( QgsWkbTypes::LineGeometry );
+      break;
+    case Qgis::SymbolType::Fill:
+      symbolContext.setOriginalGeometryType( QgsWkbTypes::PolygonGeometry );
+      break;
+    case Qgis::SymbolType::Hybrid:
+      break;
+  }
+
   std::unique_ptr< QgsSymbolLayer > layerClone( layer->clone() );
   layerClone->drawPreviewIcon( symbolContext, size );
   painter.end();
   return picture;
 }
 
-QIcon QgsSymbolLayerUtils::symbolLayerPreviewIcon( const QgsSymbolLayer *layer, QgsUnitTypes::RenderUnit u, QSize size, const QgsMapUnitScale & )
+QIcon QgsSymbolLayerUtils::symbolLayerPreviewIcon( const QgsSymbolLayer *layer, QgsUnitTypes::RenderUnit u, QSize size, const QgsMapUnitScale &, Qgis::SymbolType parentSymbolType )
 {
   QPixmap pixmap( size );
   pixmap.fill( Qt::transparent );
@@ -866,13 +987,30 @@ QIcon QgsSymbolLayerUtils::symbolLayerPreviewIcon( const QgsSymbolLayer *layer, 
   painter.begin( &pixmap );
   painter.setRenderHint( QPainter::Antialiasing );
   QgsRenderContext renderContext = QgsRenderContext::fromQPainter( &painter );
-  renderContext.setFlag( QgsRenderContext::RenderSymbolPreview );
+  renderContext.setFlag( Qgis::RenderContextFlag::RenderSymbolPreview );
+  renderContext.setFlag( Qgis::RenderContextFlag::HighQualityImageTransforms );
   // build a minimal expression context
   QgsExpressionContext expContext;
   expContext.appendScopes( QgsExpressionContextUtils::globalProjectLayerScopes( nullptr ) );
   renderContext.setExpressionContext( expContext );
 
   QgsSymbolRenderContext symbolContext( renderContext, u, 1.0, false, Qgis::SymbolRenderHints(), nullptr );
+
+  switch ( parentSymbolType )
+  {
+    case Qgis::SymbolType::Marker:
+      symbolContext.setOriginalGeometryType( QgsWkbTypes::PointGeometry );
+      break;
+    case Qgis::SymbolType::Line:
+      symbolContext.setOriginalGeometryType( QgsWkbTypes::LineGeometry );
+      break;
+    case Qgis::SymbolType::Fill:
+      symbolContext.setOriginalGeometryType( QgsWkbTypes::PolygonGeometry );
+      break;
+    case Qgis::SymbolType::Hybrid:
+      break;
+  }
+
   std::unique_ptr< QgsSymbolLayer > layerClone( layer->clone() );
   layerClone->drawPreviewIcon( symbolContext, size );
   painter.end();
@@ -1088,22 +1226,40 @@ QgsSymbol *QgsSymbolLayerUtils::loadSymbol( const QDomElement &element, const Qg
       }
       else
       {
-        QgsSymbolLayer *layer = loadSymbolLayer( e, context );
-
-        if ( layer )
+        if ( QgsSymbolLayer *layer = loadSymbolLayer( e, context ) )
         {
           // Dealing with sub-symbols nested into a layer
           const QDomElement s = e.firstChildElement( QStringLiteral( "symbol" ) );
           if ( !s.isNull() )
           {
-            QgsSymbol *subSymbol = loadSymbol( s, context );
-            const bool res = layer->setSubSymbol( subSymbol );
-            if ( !res )
+            std::unique_ptr< QgsSymbol > subSymbol( loadSymbol( s, context ) );
+            // special handling for SVG fill symbol layer -- upgrade the subsymbol which
+            // was historically used for the fill stroke to be dedicated symbol layer instead
+            // in order to match the behavior of all other fill symbol layer types
+            if ( dynamic_cast< QgsSVGFillSymbolLayer * >( layer ) )
             {
-              QgsDebugMsg( "symbol layer refused subsymbol: " + s.attribute( "name" ) );
+              // add the SVG fill first
+              layers.append( layer );
+              // then add the layers from the subsymbol stroke outline on top
+              for ( int i = 0; i < subSymbol->symbolLayerCount(); ++i )
+              {
+                layers.append( subSymbol->symbolLayer( i )->clone() );
+              }
+            }
+            else
+            {
+              const bool res = layer->setSubSymbol( subSymbol.release() );
+              if ( !res )
+              {
+                QgsDebugMsg( QStringLiteral( "symbol layer refused subsymbol: " ) + s.attribute( "name" ) );
+              }
+              layers.append( layer );
             }
           }
-          layers.append( layer );
+          else
+          {
+            layers.append( layer );
+          }
         }
       }
     }
@@ -1152,6 +1308,9 @@ QgsSymbol *QgsSymbolLayerUtils::loadSymbol( const QDomElement &element, const Qg
     flags |= Qgis::SymbolFlag::RendererShouldUseSymbolLevels;
   symbol->setFlags( flags );
 
+  symbol->animationSettings().setIsAnimated( element.attribute( QStringLiteral( "is_animated" ), QStringLiteral( "0" ) ).toInt() );
+  symbol->animationSettings().setFrameRate( element.attribute( QStringLiteral( "frame_rate" ), QStringLiteral( "10" ) ).toDouble() );
+
   const QDomElement ddProps = element.firstChildElement( QStringLiteral( "data_defined_properties" ) );
   if ( !ddProps.isNull() )
   {
@@ -1197,7 +1356,17 @@ QgsSymbolLayer *QgsSymbolLayerUtils::loadSymbolLayer( QDomElement &element, cons
     const QDomElement ddProps = element.firstChildElement( QStringLiteral( "data_defined_properties" ) );
     if ( !ddProps.isNull() )
     {
+      const QgsPropertyCollection prevProperties = layer->dataDefinedProperties();
       layer->dataDefinedProperties().readXml( ddProps, QgsSymbolLayer::propertyDefinitions() );
+
+      // some symbol layers will be created with data defined properties by default -- we want to retain
+      // these if they weren't restored from the xml
+      const QSet< int > oldKeys = prevProperties.propertyKeys();
+      for ( int key : oldKeys )
+      {
+        if ( !layer->dataDefinedProperties().propertyKeys().contains( key ) )
+          layer->setDataDefinedProperty( static_cast< QgsSymbolLayer::Property >( key ), prevProperties.property( key ) );
+      }
     }
 
     return layer;
@@ -1235,6 +1404,9 @@ QDomElement QgsSymbolLayerUtils::saveSymbol( const QString &name, const QgsSymbo
   symEl.setAttribute( QStringLiteral( "force_rhr" ), symbol->forceRHR() ? QStringLiteral( "1" ) : QStringLiteral( "0" ) );
   if ( symbol->flags() & Qgis::SymbolFlag::RendererShouldUseSymbolLevels )
     symEl.setAttribute( QStringLiteral( "renderer_should_use_levels" ), QStringLiteral( "1" ) );
+
+  symEl.setAttribute( QStringLiteral( "is_animated" ), symbol->animationSettings().isAnimated() ? QStringLiteral( "1" ) : QStringLiteral( "0" ) );
+  symEl.setAttribute( QStringLiteral( "frame_rate" ), qgsDoubleToString( symbol->animationSettings().frameRate() ) );
 
   //QgsDebugMsg( "num layers " + QString::number( symbol->symbolLayerCount() ) );
 
@@ -2018,7 +2190,7 @@ bool QgsSymbolLayerUtils::fillFromSld( QDomElement &element, Qt::BrushStyle &bru
     QgsStringMap svgParams = getSvgParameterList( element );
     for ( QgsStringMap::iterator it = svgParams.begin(); it != svgParams.end(); ++it )
     {
-      QgsDebugMsg( QStringLiteral( "found SvgParameter %1: %2" ).arg( it.key(), it.value() ) );
+      QgsDebugMsgLevel( QStringLiteral( "found SvgParameter %1: %2" ).arg( it.key(), it.value() ), 2 );
 
       if ( it.key() == QLatin1String( "fill" ) )
         color = QColor( it.value() );
@@ -2164,7 +2336,7 @@ bool QgsSymbolLayerUtils::lineFromSld( QDomElement &element,
   QgsStringMap svgParams = getSvgParameterList( element );
   for ( QgsStringMap::iterator it = svgParams.begin(); it != svgParams.end(); ++it )
   {
-    QgsDebugMsg( QStringLiteral( "found SvgParameter %1: %2" ).arg( it.key(), it.value() ) );
+    QgsDebugMsgLevel( QStringLiteral( "found SvgParameter %1: %2" ).arg( it.key(), it.value() ), 2 );
 
     if ( it.key() == QLatin1String( "stroke" ) )
     {
@@ -2248,7 +2420,7 @@ bool QgsSymbolLayerUtils::lineFromSld( QDomElement &element,
           }
           else
           {
-            QgsDebugMsg( QStringLiteral( "custom dash pattern required but not provided. Using default dash pattern." ) );
+            QgsDebugMsgLevel( QStringLiteral( "custom dash pattern required but not provided. Using default dash pattern." ), 2 );
             penStyle = Qt::DashLine;
           }
         }
@@ -2504,7 +2676,7 @@ bool QgsSymbolLayerUtils::wellKnownMarkerFromSld( QDomElement &element,
   if ( !wellKnownNameElem.isNull() )
   {
     name = wellKnownNameElem.firstChild().nodeValue();
-    QgsDebugMsg( "found Mark with well known name: " + name );
+    QgsDebugMsgLevel( "found Mark with well known name: " + name, 2 );
   }
 
   // <Fill>
@@ -2881,7 +3053,7 @@ bool QgsSymbolLayerUtils::onlineResourceFromSldElement( QDomElement &element, QS
   if ( onlineResourceElem.isNull() )
     return false;
 
-  path = onlineResourceElem.attributeNS( QStringLiteral( "http://www.w3.org/1999/xlink" ), QStringLiteral( "href" ) );
+  path = QUrl::fromPercentEncoding( onlineResourceElem.attributeNS( QStringLiteral( "http://www.w3.org/1999/xlink" ), QStringLiteral( "href" ) ).toUtf8() );
 
   const QDomElement formatElem = element.firstChildElement( QStringLiteral( "Format" ) );
   if ( formatElem.isNull() )
@@ -2920,7 +3092,7 @@ QgsStringMap QgsSymbolLayerUtils::getSvgParameterList( QDomElement &element )
         if ( paramElem.firstChild().nodeType() == QDomNode::ElementNode &&
              paramElem.firstChild().localName() == QLatin1String( "Literal" ) )
         {
-          QgsDebugMsg( paramElem.firstChild().localName() );
+          QgsDebugMsgLevel( paramElem.firstChild().localName(), 3 );
           value = paramElem.firstChild().firstChild().nodeValue();
         }
         else
@@ -4504,7 +4676,7 @@ QList<double> QgsSymbolLayerUtils::prettyBreaks( double minimum, double maximum,
   {
     end = end + 1;
   }
-  QgsDebugMsg( QStringLiteral( "pretty classes: %1" ).arg( end ) );
+  QgsDebugMsgLevel( QStringLiteral( "pretty classes: %1" ).arg( end ), 3 );
 
   // If we don't have quite enough labels, extend the range out
   // to make more (these labels are beyond the data :()
@@ -4779,6 +4951,69 @@ QSet<const QgsSymbolLayer *> QgsSymbolLayerUtils::toSymbolLayerPointers( QgsFeat
   SymbolLayerVisitor visitor( symbolLayerIds );
   renderer->accept( &visitor );
   return visitor.mSymbolLayers;
+}
+
+double QgsSymbolLayerUtils::rendererFrameRate( const QgsFeatureRenderer *renderer )
+{
+  class SymbolRefreshRateVisitor : public QgsStyleEntityVisitorInterface
+  {
+    public:
+      SymbolRefreshRateVisitor()
+      {}
+
+      bool visitEnter( const QgsStyleEntityVisitorInterface::Node &node ) override
+      {
+        if ( node.type == QgsStyleEntityVisitorInterface::NodeType::SymbolRule )
+        {
+          return true;
+        }
+        return false;
+      }
+
+      void visitSymbol( const QgsSymbol *symbol )
+      {
+        // symbol may be marked as animated on a symbol level (e.g. when it implements animation
+        // via data defined properties)
+        if ( symbol->animationSettings().isAnimated() )
+        {
+          if ( symbol->animationSettings().frameRate() > refreshRate )
+            refreshRate = symbol->animationSettings().frameRate();
+        }
+        for ( int idx = 0; idx < symbol->symbolLayerCount(); idx++ )
+        {
+          const QgsSymbolLayer *sl = symbol->symbolLayer( idx );
+          if ( const QgsAnimatedMarkerSymbolLayer *animatedMarker = dynamic_cast< const QgsAnimatedMarkerSymbolLayer *>( sl ) )
+          {
+            // this is a bit of a short cut -- if a symbol has multiple layers with different frame rates,
+            // there's no guarantee that they will be even multiples of each other! But given we are looking for
+            // a single frame rate for a whole renderer, it's an acceptable compromise...
+            if ( refreshRate == -1 || ( animatedMarker->frameRate() > refreshRate ) )
+              refreshRate = animatedMarker->frameRate();
+          }
+
+          if ( const QgsSymbol *subSymbol = const_cast<QgsSymbolLayer *>( sl )->subSymbol() )
+            visitSymbol( subSymbol );
+        }
+      }
+
+      bool visit( const QgsStyleEntityVisitorInterface::StyleLeaf &leaf ) override
+      {
+        if ( leaf.entity && leaf.entity->type() == QgsStyle::SymbolEntity )
+        {
+          if ( QgsSymbol *symbol = qgis::down_cast<const QgsStyleSymbolEntity *>( leaf.entity )->symbol() )
+          {
+            visitSymbol( symbol );
+          }
+        }
+        return true;
+      }
+
+      double refreshRate = -1;
+  };
+
+  SymbolRefreshRateVisitor visitor;
+  renderer->accept( &visitor );
+  return visitor.refreshRate;
 }
 
 QgsSymbol *QgsSymbolLayerUtils::restrictedSizeSymbol( const QgsSymbol *s, double minSize, double maxSize, QgsRenderContext *context, double &width, double &height )

@@ -1,0 +1,67 @@
+# -*- coding: utf-8 -*-
+"""QGIS Unit tests for QgsRasterLayerElevationProperties
+
+.. note:: This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+"""
+__author__ = 'Nyall Dawson'
+__date__ = '09/11/2020'
+__copyright__ = 'Copyright 2020, The QGIS Project'
+
+import qgis  # NOQA
+
+from qgis.core import (
+    QgsRasterLayerElevationProperties,
+    QgsReadWriteContext,
+    QgsLineSymbol
+)
+
+from qgis.PyQt.QtXml import QDomDocument
+
+from qgis.testing import start_app, unittest
+
+start_app()
+
+
+class TestQgsRasterLayerElevationProperties(unittest.TestCase):
+
+    def testBasic(self):
+        props = QgsRasterLayerElevationProperties(None)
+        self.assertEqual(props.zScale(), 1)
+        self.assertEqual(props.zOffset(), 0)
+        self.assertFalse(props.isEnabled())
+        self.assertFalse(props.hasElevation())
+        self.assertEqual(props.bandNumber(), 1)
+        self.assertIsInstance(props.profileLineSymbol(), QgsLineSymbol)
+
+        props.setZOffset(0.5)
+        props.setZScale(2)
+        props.setBandNumber(2)
+        props.setEnabled(True)
+        self.assertEqual(props.zScale(), 2)
+        self.assertEqual(props.zOffset(), 0.5)
+        self.assertTrue(props.isEnabled())
+        self.assertEqual(props.bandNumber(), 2)
+        self.assertTrue(props.hasElevation())
+
+        sym = QgsLineSymbol.createSimple({'outline_color': '#ff4433', 'outline_width': 0.5})
+        props.setProfileLineSymbol(sym)
+        self.assertEqual(props.profileLineSymbol().color().name(), '#ff4433')
+
+        doc = QDomDocument("testdoc")
+        elem = doc.createElement('test')
+        props.writeXml(elem, doc, QgsReadWriteContext())
+
+        props2 = QgsRasterLayerElevationProperties(None)
+        props2.readXml(elem, QgsReadWriteContext())
+        self.assertEqual(props2.zScale(), 2)
+        self.assertEqual(props2.zOffset(), 0.5)
+        self.assertTrue(props2.isEnabled())
+        self.assertEqual(props2.bandNumber(), 2)
+        self.assertEqual(props2.profileLineSymbol().color().name(), '#ff4433')
+
+
+if __name__ == '__main__':
+    unittest.main()

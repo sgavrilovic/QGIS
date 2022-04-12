@@ -157,23 +157,18 @@ QList<QgsMapToolIdentify::IdentifyResult> QgsMapToolIdentify::identify( const Qg
   {
     QApplication::setOverrideCursor( Qt::WaitCursor );
 
-    int layerCount;
+    QList< QgsMapLayer * > targetLayers;
     if ( layerList.isEmpty() )
-      layerCount = mCanvas->layerCount();
+      targetLayers = mCanvas->layers( true );
     else
-      layerCount = layerList.count();
+      targetLayers = layerList;
 
-
+    const int layerCount = targetLayers.size();
     for ( int i = 0; i < layerCount; i++ )
     {
+      QgsMapLayer *layer = targetLayers.value( i );
 
-      QgsMapLayer *layer = nullptr;
-      if ( layerList.isEmpty() )
-        layer = mCanvas->layer( i );
-      else
-        layer = layerList.value( i );
-
-      emit identifyProgress( i, mCanvas->layerCount() );
+      emit identifyProgress( i, layerCount );
       emit identifyMessage( tr( "Identifying on %1…" ).arg( layer->name() ) );
 
       if ( !layer->flags().testFlag( QgsMapLayer::Identifiable ) )
@@ -186,7 +181,7 @@ QList<QgsMapToolIdentify::IdentifyResult> QgsMapToolIdentify::identify( const Qg
       }
     }
 
-    emit identifyProgress( mCanvas->layerCount(), mCanvas->layerCount() );
+    emit identifyProgress( layerCount, layerCount );
     emit identifyMessage( tr( "Identifying done." ) );
   }
 
@@ -452,9 +447,9 @@ bool QgsMapToolIdentify::identifyVectorTileLayer( QList<QgsMapToolIdentify::Iden
       }
     }
 
-    int tileZoom = QgsVectorTileUtils::scaleToZoomLevel( mCanvas->scale(), layer->sourceMinZoom(), layer->sourceMaxZoom() );
-    QgsTileMatrix tileMatrix = QgsTileMatrix::fromWebMercator( tileZoom );
-    QgsTileRange tileRange = tileMatrix.tileRangeFromExtent( r );
+    const int tileZoom = layer->tileMatrixSet().scaleToZoomLevel( mCanvas->scale() );
+    const QgsTileMatrix tileMatrix = layer->tileMatrixSet().tileMatrix( tileZoom );
+    const QgsTileRange tileRange = tileMatrix.tileRangeFromExtent( r );
 
     for ( int row = tileRange.startRow(); row <= tileRange.endRow(); ++row )
     {
@@ -465,7 +460,7 @@ bool QgsMapToolIdentify::identifyVectorTileLayer( QList<QgsMapToolIdentify::Iden
         if ( data.isEmpty() )
           continue;  // failed to get data
 
-        QgsVectorTileMVTDecoder decoder;
+        QgsVectorTileMVTDecoder decoder( layer->tileMatrixSet() );
         if ( !decoder.decode( tileID, data ) )
           continue;  // failed to decode
 
@@ -709,7 +704,7 @@ void QgsMapToolIdentify::closestVertexAttributes( const QgsAbstractGeometry &geo
     derivedAttributes.insert( tr( "Closest vertex M" ), str );
   }
 
-  if ( vId.type == QgsVertexId::CurveVertex )
+  if ( vId.type == Qgis::VertexType::Curve )
   {
     double radius, centerX, centerY;
     QgsVertexId vIdBefore = vId;
@@ -1189,7 +1184,7 @@ QString QgsMapToolIdentify::formatDistance( double distance, QgsUnitTypes::Dista
   QgsSettings settings;
   bool baseUnit = settings.value( QStringLiteral( "qgis/measure/keepbaseunit" ), true ).toBool();
 
-  return QgsDistanceArea::formatDistance( distance, 3, unit, baseUnit );
+  return QgsDistanceArea::formatDistance( distance, mCoordinatePrecision, unit, baseUnit );
 }
 
 QString QgsMapToolIdentify::formatArea( double area, QgsUnitTypes::AreaUnit unit ) const
@@ -1197,7 +1192,7 @@ QString QgsMapToolIdentify::formatArea( double area, QgsUnitTypes::AreaUnit unit
   QgsSettings settings;
   bool baseUnit = settings.value( QStringLiteral( "qgis/measure/keepbaseunit" ), true ).toBool();
 
-  return QgsDistanceArea::formatArea( area, 3, unit, baseUnit );
+  return QgsDistanceArea::formatArea( area, mCoordinatePrecision, unit, baseUnit );
 }
 
 void QgsMapToolIdentify::formatChanged( QgsRasterLayer *layer )

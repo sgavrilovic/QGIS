@@ -416,7 +416,8 @@ double QgsLayoutUtils::scaleFactorFromItemStyle( const QStyleOptionGraphicsItem 
 
 double QgsLayoutUtils::scaleFactorFromItemStyle( const QStyleOptionGraphicsItem *style, QPainter *painter )
 {
-  return style->levelOfDetailFromTransform( painter->worldTransform() );
+  Q_UNUSED( style );
+  return QStyleOptionGraphicsItem::levelOfDetailFromTransform( painter->worldTransform() );
 }
 
 QgsMapLayer *QgsLayoutUtils::mapLayerFromString( const QString &string, QgsProject *project )
@@ -512,7 +513,7 @@ double QgsLayoutUtils::mmToPoints( const double mmSize )
 
 QVector< double > QgsLayoutUtils::predefinedScales( const QgsLayout *layout )
 {
-  QgsProject *lProject = layout->project();
+  QgsProject *lProject = layout ? layout->project() : nullptr;
   QVector< double > mapScales;
   if ( lProject )
     mapScales = lProject->viewSettings()->mapScales();

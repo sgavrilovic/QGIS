@@ -23,7 +23,8 @@ from tempfile import TemporaryDirectory
 
 import qgis  # NOQA
 
-from qgis.core import (QgsProject,
+from qgis.core import (Qgis,
+                       QgsProject,
                        QgsCoordinateTransformContext,
                        QgsProjectDirtyBlocker,
                        QgsApplication,
@@ -35,7 +36,9 @@ from qgis.core import (QgsProject,
                        QgsMapLayer,
                        QgsExpressionContextUtils,
                        QgsProjectColorScheme,
-                       QgsSettings)
+                       QgsSettings,
+                       QgsFeature,
+                       QgsGeometry)
 from qgis.gui import (QgsLayerTreeMapCanvasBridge,
                       QgsMapCanvas)
 
@@ -727,7 +730,7 @@ class TestQgsProject(unittest.TestCase):
 
     def test_transactionsGroup(self):
         # Undefined transaction group (wrong provider key).
-        QgsProject.instance().setAutoTransaction(True)
+        QgsProject.instance().setTransactionMode(Qgis.TransactionMode.AutomaticGroups)
         noTg = QgsProject.instance().transactionGroup("provider-key", "database-connection-string")
         self.assertIsNone(noTg)
 
@@ -1351,9 +1354,7 @@ class TestQgsProject(unittest.TestCase):
         p = QgsProject()
         spy = QSignalSpy(p.transformContextChanged)
         ctx = QgsCoordinateTransformContext()
-        ctx.addSourceDestinationDatumTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(3857),
-                                               1234, 1235)
-        ctx.addCoordinateOperation(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(3857), 'x')
+        ctx.addCoordinateOperation(QgsCoordinateReferenceSystem('EPSG:4326'), QgsCoordinateReferenceSystem('EPSG:3857'), 'x')
         p.setTransformContext(ctx)
         self.assertEqual(len(spy), 1)
 
@@ -1383,31 +1384,32 @@ class TestQgsProject(unittest.TestCase):
 
     def testMapScales(self):
         p = QgsProject()
-        self.assertFalse(p.mapScales())
-        self.assertFalse(p.useProjectScales())
+        vs = p.viewSettings()
+        self.assertFalse(vs.mapScales())
+        self.assertFalse(vs.useProjectScales())
 
         spy = QSignalSpy(p.mapScalesChanged)
-        p.setMapScales([])
+        vs.setMapScales([])
         self.assertEqual(len(spy), 0)
-        p.setUseProjectScales(False)
+        vs.setUseProjectScales(False)
         self.assertEqual(len(spy), 0)
 
-        p.setMapScales([5000, 6000, 3000, 4000])
+        vs.setMapScales([5000, 6000, 3000, 4000])
         # scales must be sorted
-        self.assertEqual(p.mapScales(), [6000.0, 5000.0, 4000.0, 3000.0])
+        self.assertEqual(vs.mapScales(), [6000.0, 5000.0, 4000.0, 3000.0])
         self.assertEqual(len(spy), 1)
-        p.setMapScales([5000, 6000, 3000, 4000])
+        vs.setMapScales([5000, 6000, 3000, 4000])
         self.assertEqual(len(spy), 1)
-        self.assertEqual(p.mapScales(), [6000.0, 5000.0, 4000.0, 3000.0])
-        p.setMapScales([5000, 6000, 3000, 4000, 1000])
+        self.assertEqual(vs.mapScales(), [6000.0, 5000.0, 4000.0, 3000.0])
+        vs.setMapScales([5000, 6000, 3000, 4000, 1000])
         self.assertEqual(len(spy), 2)
-        self.assertEqual(p.mapScales(), [6000.0, 5000.0, 4000.0, 3000.0, 1000.0])
+        self.assertEqual(vs.mapScales(), [6000.0, 5000.0, 4000.0, 3000.0, 1000.0])
 
-        p.setUseProjectScales(True)
+        vs.setUseProjectScales(True)
         self.assertEqual(len(spy), 3)
-        p.setUseProjectScales(True)
+        vs.setUseProjectScales(True)
         self.assertEqual(len(spy), 3)
-        p.setUseProjectScales(False)
+        vs.setUseProjectScales(False)
         self.assertEqual(len(spy), 4)
 
     def testSetInstance(self):
@@ -1417,6 +1419,152 @@ class TestQgsProject(unittest.TestCase):
         self.assertNotEqual(p, QgsProject.instance())
         QgsProject.setInstance(p)
         self.assertEqual(p, QgsProject.instance())
+
+    def testTransactionMode(self):
+        project = QgsProject()
+
+        # Default transaction mode disabled
+        self.assertEqual(project.transactionMode(), Qgis.TransactionMode.Disabled)
+
+        project.setTransactionMode(Qgis.TransactionMode.AutomaticGroups)
+        self.assertEqual(project.transactionMode(), Qgis.TransactionMode.AutomaticGroups)
+
+        project.setTransactionMode(Qgis.TransactionMode.BufferedGroups)
+        self.assertEqual(project.transactionMode(), Qgis.TransactionMode.BufferedGroups)
+
+        project.setTransactionMode(Qgis.TransactionMode.Disabled)
+        self.assertEqual(project.transactionMode(), Qgis.TransactionMode.Disabled)
+
+    def testEditBufferGroup(self):
+        project = QgsProject()
+        project.removeAllMapLayers()
+
+        l1 = createLayer('test')
+        project.addMapLayer(l1)
+        l2 = createLayer('test2')
+        project.addMapLayer(l2)
+
+        # TransactionMode disabled -> editBufferGroup is empty
+        self.assertEqual(len(project.editBufferGroup().layers()), 0)
+
+        # TransactionMode BufferedGroups -> all editable layers in group
+        project.setTransactionMode(Qgis.TransactionMode.BufferedGroups)
+        self.assertIn(l1, project.editBufferGroup().layers())
+        self.assertIn(l2, project.editBufferGroup().layers())
+
+        project.removeAllMapLayers()
+
+    def testStartEditingCommitRollBack(self):
+        project = QgsProject()
+        project.removeAllMapLayers()
+
+        layer_a = QgsVectorLayer('Point?crs=epsg:4326&field=int:integer&field=int2:integer', 'test', 'memory')
+        layer_b = QgsVectorLayer('Point?crs=epsg:4326&field=int:integer&field=int2:integer', 'test', 'memory')
+
+        project.addMapLayers([layer_a, layer_b])
+        project.setTransactionMode(Qgis.TransactionMode.BufferedGroups)
+
+        self.assertFalse(project.editBufferGroup().isEditing())
+
+        self.assertTrue(project.startEditing(layer_a))
+        self.assertTrue(project.editBufferGroup().isEditing())
+        self.assertTrue(layer_a.editBuffer())
+        self.assertTrue(layer_b.editBuffer())
+
+        success, commitErrors = project.commitChanges(False)
+        self.assertTrue(success)
+        self.assertTrue(project.editBufferGroup().isEditing())
+        self.assertTrue(layer_a.editBuffer())
+        self.assertTrue(layer_b.editBuffer())
+        success, commitErrors = project.commitChanges(True, layer_b)
+        self.assertTrue(success)
+        self.assertFalse(project.editBufferGroup().isEditing())
+        self.assertFalse(layer_a.editBuffer())
+        self.assertFalse(layer_b.editBuffer())
+
+        self.assertTrue(project.startEditing())
+        self.assertTrue(project.editBufferGroup().isEditing())
+
+        f = QgsFeature(layer_a.fields())
+        f.setAttribute('int', 123)
+        f.setGeometry(QgsGeometry.fromWkt('point(7 45)'))
+        self.assertTrue(layer_a.addFeatures([f]))
+        self.assertEqual(len(project.editBufferGroup().modifiedLayers()), 1)
+        self.assertIn(layer_a, project.editBufferGroup().modifiedLayers())
+
+        # Check feature in layer edit buffer but not in provider till commit
+        self.assertEqual(layer_a.featureCount(), 1)
+        self.assertEqual(layer_a.dataProvider().featureCount(), 0)
+
+        success, rollbackErrors = project.rollBack(False)
+        self.assertTrue(success)
+        self.assertTrue(project.editBufferGroup().isEditing())
+        self.assertEqual(layer_a.featureCount(), 0)
+
+        self.assertTrue(layer_a.addFeatures([f]))
+        self.assertEqual(layer_a.featureCount(), 1)
+        self.assertEqual(layer_a.dataProvider().featureCount(), 0)
+
+        success, commitErrors = project.commitChanges(True)
+        self.assertTrue(success)
+        self.assertFalse(project.editBufferGroup().isEditing())
+        self.assertEqual(layer_a.featureCount(), 1)
+        self.assertEqual(layer_a.dataProvider().featureCount(), 1)
+
+        project.removeAllMapLayers()
+
+    def test_remember_editable_status(self):
+        """
+        Test a project with remember editable layers flag set
+        """
+        project = QgsProject()
+        project.removeAllMapLayers()
+
+        layer_a = QgsVectorLayer('Point?crs=epsg:4326&field=int:integer&field=int2:integer', 'test', 'memory')
+        layer_b = QgsVectorLayer('Point?crs=epsg:4326&field=int:integer&field=int2:integer', 'test', 'memory')
+        layer_c = QgsVectorLayer('Point?crs=epsg:4326&field=int:integer&field=int2:integer', 'test', 'memory')
+
+        project.addMapLayers([layer_a, layer_b, layer_c])
+
+        layer_a.startEditing()
+        layer_c.startEditing()
+
+        tmp_dir = QTemporaryDir()
+        tmp_project_file = "{}/project.qgs".format(tmp_dir.path())
+        self.assertTrue(project.write(tmp_project_file))
+
+        # project did NOT have remember editable layers flag set, so layers should NOT be editable
+        project2 = QgsProject()
+        self.assertTrue(project2.read(tmp_project_file))
+
+        self.assertFalse(project2.mapLayer(layer_a.id()).isEditable())
+        self.assertFalse(project2.mapLayer(layer_b.id()).isEditable())
+        self.assertFalse(project2.mapLayer(layer_c.id()).isEditable())
+
+        # set remember edits status flag
+        project.setFlag(Qgis.ProjectFlag.RememberLayerEditStatusBetweenSessions)
+        tmp_project_file2 = "{}/project2.qgs".format(tmp_dir.path())
+        self.assertTrue(project.write(tmp_project_file2))
+
+        project3 = QgsProject()
+        self.assertTrue(project3.read(tmp_project_file2))
+        self.assertTrue(project3.flags() & Qgis.ProjectFlag.RememberLayerEditStatusBetweenSessions)
+        # the layers should be made immediately editable
+        self.assertTrue(project3.mapLayer(layer_a.id()).isEditable())
+        self.assertFalse(project3.mapLayer(layer_b.id()).isEditable())
+        self.assertTrue(project3.mapLayer(layer_c.id()).isEditable())
+
+        # turn off flag and re-save project
+        project3.setFlag(Qgis.ProjectFlag.RememberLayerEditStatusBetweenSessions, False)
+        tmp_project_file3 = "{}/project2.qgs".format(tmp_dir.path())
+        self.assertTrue(project3.write(tmp_project_file3))
+
+        project4 = QgsProject()
+        self.assertTrue(project4.read(tmp_project_file3))
+        self.assertFalse(project4.flags() & Qgis.ProjectFlag.RememberLayerEditStatusBetweenSessions)
+        self.assertFalse(project4.mapLayer(layer_a.id()).isEditable())
+        self.assertFalse(project4.mapLayer(layer_b.id()).isEditable())
+        self.assertFalse(project4.mapLayer(layer_c.id()).isEditable())
 
 
 if __name__ == '__main__':

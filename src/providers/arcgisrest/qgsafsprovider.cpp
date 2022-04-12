@@ -47,7 +47,7 @@ QgsAfsProvider::QgsAfsProvider( const QString &uri, const ProviderOptions &optio
 
   const QString referer = mSharedData->mDataSource.param( QStringLiteral( "referer" ) );
   if ( !referer.isEmpty() )
-    mRequestHeaders[ QStringLiteral( "Referer" )] = referer;
+    mRequestHeaders[ QStringLiteral( "referer" )] = referer;
 
   std::unique_ptr< QgsScopedRuntimeProfile > profile;
   if ( QgsApplication::profiler()->groupIsActive( QStringLiteral( "projectload" ) ) )
@@ -119,7 +119,8 @@ QgsAfsProvider::QgsAfsProvider( const QString &uri, const ProviderOptions &optio
   if ( mSharedData->mExtent.isEmpty() )
   {
     mSharedData->mExtent = originalExtent;
-    const QgsCoordinateTransform ct( extentCrs, mSharedData->mSourceCRS, options.transformContext );
+    QgsCoordinateTransform ct( extentCrs, mSharedData->mSourceCRS, options.transformContext );
+    ct.setBallparkTransformsAreAppropriate( true );
     try
     {
       mSharedData->mExtent = ct.transformBoundingBox( mSharedData->mExtent );
@@ -209,11 +210,11 @@ QgsAfsProvider::QgsAfsProvider( const QString &uri, const ProviderOptions &optio
     temporalCapabilities()->setStartField( timeInfo.value( QStringLiteral( "startTimeField" ) ).toString() );
     temporalCapabilities()->setEndField( timeInfo.value( QStringLiteral( "endTimeField" ) ).toString() );
     if ( !temporalCapabilities()->endField().isEmpty() )
-      temporalCapabilities()->setMode( QgsVectorDataProviderTemporalCapabilities::ProviderStoresFeatureDateTimeStartAndEndInSeparateFields );
+      temporalCapabilities()->setMode( Qgis::VectorDataProviderTemporalMode::StoresFeatureDateTimeStartAndEndInSeparateFields );
     else if ( !temporalCapabilities()->startField().isEmpty() )
-      temporalCapabilities()->setMode( QgsVectorDataProviderTemporalCapabilities::ProviderStoresFeatureDateTimeInstantInField );
+      temporalCapabilities()->setMode( Qgis::VectorDataProviderTemporalMode::StoresFeatureDateTimeInstantInField );
     else
-      temporalCapabilities()->setMode( QgsVectorDataProviderTemporalCapabilities::ProviderHasFixedTemporalRange );
+      temporalCapabilities()->setMode( Qgis::VectorDataProviderTemporalMode::HasFixedTemporalRange );
 
     const QVariantList extent = timeInfo.value( QStringLiteral( "timeExtent" ) ).toList();
     if ( extent.size() == 2 )
@@ -353,6 +354,16 @@ QString QgsAfsProvider::name() const
   return AFS_PROVIDER_KEY;
 }
 
+QString QgsAfsProvider::providerKey()
+{
+  return AFS_PROVIDER_KEY;
+}
+
+void QgsAfsProvider::handlePostCloneOperations( QgsVectorDataProvider *source )
+{
+  mSharedData = qobject_cast<QgsAfsProvider *>( source )->mSharedData;
+}
+
 QString QgsAfsProvider::description() const
 {
   return AFS_PROVIDER_DESCRIPTION;
@@ -467,6 +478,7 @@ QgsAfsProvider *QgsAfsProviderMetadata::createProvider( const QString &uri, cons
 {
   return new QgsAfsProvider( uri, options, flags );
 }
+
 
 #ifndef HAVE_STATIC_PROVIDERS
 QGISEXTERN QgsProviderMetadata *providerMetadataFactory()

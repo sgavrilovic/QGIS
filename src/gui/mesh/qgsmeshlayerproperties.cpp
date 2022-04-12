@@ -80,13 +80,13 @@ QgsMeshLayerProperties::QgsMeshLayerProperties( QgsMapLayer *lyr, QgsMapCanvas *
   connect( lyr->styleManager(), &QgsMapLayerStyleManager::currentStyleChanged, this, &QgsMeshLayerProperties::syncAndRepaint );
 
   connect( this, &QDialog::accepted, this, &QgsMeshLayerProperties::apply );
+  connect( this, &QDialog::rejected, this, &QgsMeshLayerProperties::onCancel );
   connect( buttonBox->button( QDialogButtonBox::Apply ), &QAbstractButton::clicked, this, &QgsMeshLayerProperties::apply );
 
   connect( mMeshLayer, &QgsMeshLayer::dataChanged, this, &QgsMeshLayerProperties::syncAndRepaint );
   connect( buttonBox, &QDialogButtonBox::helpRequested, this, &QgsMeshLayerProperties::showHelp );
 
   connect( mTemporalReloadButton, &QPushButton::clicked, this, &QgsMeshLayerProperties::reloadTemporalProperties );
-  connect( mTemporalStaticDatasetCheckBox, &QCheckBox::toggled, this, &QgsMeshLayerProperties::onStaticDatasetCheckBoxChanged );
   connect( mTemporalDateTimeReference, &QDateTimeEdit::dateTimeChanged, this, &QgsMeshLayerProperties::onTimeReferenceChange );
   connect( mMeshLayer, &QgsMeshLayer::activeScalarDatasetGroupChanged, mStaticDatasetWidget, &QgsMeshStaticDatasetWidget::setScalarDatasetGroup );
   connect( mMeshLayer, &QgsMeshLayer::activeVectorDatasetGroupChanged, mStaticDatasetWidget, &QgsMeshStaticDatasetWidget::setVectorDatasetGroup );
@@ -105,6 +105,7 @@ QgsMeshLayerProperties::QgsMeshLayerProperties( QgsMapLayer *lyr, QgsMapCanvas *
   layout->addWidget( mMetadataWidget );
   metadataFrame->setLayout( layout );
   mOptsPage_Metadata->setContentsMargins( 0, 0, 0, 0 );
+  mBackupCrs = mMeshLayer->crs();
 
   mTemporalDateTimeStart->setDisplayFormat( "yyyy-MM-dd HH:mm:ss" );
   mTemporalDateTimeEnd->setDisplayFormat( "yyyy-MM-dd HH:mm:ss" );
@@ -216,8 +217,10 @@ void QgsMeshLayerProperties::syncToLayer()
     w->syncToLayer( mMeshLayer );
 
   QgsDebugMsgLevel( QStringLiteral( "populate rendering tab" ), 4 );
-  QgsMeshSimplificationSettings simplifySettings = mMeshLayer->meshSimplificationSettings();
+  if ( mMeshLayer->isEditable() )
+    mSimplifyMeshGroupBox->setEnabled( false );
 
+  QgsMeshSimplificationSettings simplifySettings = mMeshLayer->meshSimplificationSettings();
   mSimplifyMeshGroupBox->setChecked( simplifySettings.isEnabled() );
   mSimplifyReductionFactorSpinBox->setValue( simplifySettings.reductionFactor() );
   mSimplifyMeshResolutionSpinBox->setValue( simplifySettings.meshResolution() );
@@ -237,8 +240,7 @@ void QgsMeshLayerProperties::syncToLayer()
     mComboBoxTemporalDatasetMatchingMethod->findData( temporalProperties->matchingMethod() ) );
 
   mStaticDatasetWidget->syncToLayer();
-  mTemporalStaticDatasetCheckBox->setChecked( !mMeshLayer->temporalProperties()->isActive() );
-  mStaticDatasetGroupBox->setCollapsed( mIsMapSettingsTemporal &&  mMeshLayer->temporalProperties()->isActive() );
+  mStaticDatasetGroupBox->setChecked( !mMeshLayer->temporalProperties()->isActive() );
 }
 
 void QgsMeshLayerProperties::loadDefaultStyle()
@@ -387,12 +389,14 @@ void QgsMeshLayerProperties::apply()
       static_cast<QgsUnitTypes::TemporalUnit>( mTemporalProviderTimeUnitComboBox->currentData().toInt() ) );
 
   mStaticDatasetWidget->apply();
-  bool needEmitRendererChanged = mMeshLayer->temporalProperties()->isActive() == mTemporalStaticDatasetCheckBox->isChecked();
-  mMeshLayer->temporalProperties()->setIsActive( !mTemporalStaticDatasetCheckBox->isChecked() );
+  bool needEmitRendererChanged = mMeshLayer->temporalProperties()->isActive() == mStaticDatasetGroupBox->isChecked();
+  mMeshLayer->temporalProperties()->setIsActive( !mStaticDatasetGroupBox->isChecked() );
   mMeshLayer->setTemporalMatchingMethod( static_cast<QgsMeshDataProviderTemporalCapabilities::MatchingTemporalDatasetMethod>(
       mComboBoxTemporalDatasetMatchingMethod->currentData().toInt() ) );
 
   mMetadataWidget->acceptMetadata();
+
+  mBackupCrs = mMeshLayer->crs();
 
   if ( needMeshUpdating )
     mMeshLayer->reload();
@@ -477,16 +481,11 @@ void QgsMeshLayerProperties::onTimeReferenceChange()
   mTemporalDateTimeEnd->setDateTime( timeExtent.end() );
 }
 
-void QgsMeshLayerProperties::onStaticDatasetCheckBoxChanged()
-{
-  mStaticDatasetGroupBox->setCollapsed( !mTemporalStaticDatasetCheckBox->isChecked() && mIsMapSettingsTemporal );
-}
-
 void QgsMeshLayerProperties::urlClicked( const QUrl &url )
 {
   QFileInfo file( url.toLocalFile() );
   if ( file.exists() && !file.isDir() )
-    QgsGui::instance()->nativePlatformInterface()->openFileExplorerAndSelectFile( url.toLocalFile() );
+    QgsGui::nativePlatformInterface()->openFileExplorerAndSelectFile( url.toLocalFile() );
   else
     QDesktopServices::openUrl( url );
 }
@@ -551,4 +550,10 @@ void QgsMeshLayerProperties::saveMetadataAs()
     myQSettings.setValue( QStringLiteral( "style/lastStyleDir" ), QFileInfo( myOutputFileName ).absolutePath() );
   else
     QMessageBox::information( this, tr( "Save Metadata" ), message );
+}
+
+void QgsMeshLayerProperties::onCancel()
+{
+  if ( mBackupCrs != mMeshLayer->crs() )
+    mMeshLayer->setCrs( mBackupCrs );
 }

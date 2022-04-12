@@ -11,7 +11,7 @@
 
 
 
-class QgsMeshLayer : QgsMapLayer
+class QgsMeshLayer : QgsMapLayer, QgsAbstractProfileSource
 {
 %Docstring(signature="appended")
 
@@ -94,6 +94,8 @@ Constructor for LayerOptions with optional ``transformContext``.
 
       QgsCoordinateTransformContext transformContext;
 
+      bool loadDefaultStyle;
+
       bool skipCrsValidation;
     };
 
@@ -133,6 +135,8 @@ QgsMeshLayer cannot be copied.
 
     virtual QgsMapLayerRenderer *createMapRenderer( QgsRenderContext &rendererContext ) /Factory/;
 
+    virtual QgsAbstractProfileGenerator *createProfileGenerator( const QgsProfileRequest &request ) /Factory/;
+
      virtual bool readSymbology( const QDomNode &node, QString &errorMessage,
                         QgsReadWriteContext &context, QgsMapLayer::StyleCategories categories = QgsMapLayer::AllStyleCategories );
      virtual bool writeSymbology( QDomNode &node, QDomDocument &doc, QString &errorMessage,
@@ -151,6 +155,8 @@ QgsMeshLayer cannot be copied.
 
     virtual QgsMapLayerTemporalProperties *temporalProperties();
 
+    virtual QgsMapLayerElevationProperties *elevationProperties();
+
     virtual void reload();
 
     virtual QStringList subLayers() const;
@@ -160,6 +166,8 @@ QgsMeshLayer cannot be copied.
     virtual bool isEditable() const;
 
     virtual bool supportsEditing() const;
+
+    virtual QString loadDefaultStyle( bool &resultFlag /Out/ ) ${SIP_FINAL};
 
 
     QString providerType() const;
@@ -564,6 +572,26 @@ Dataset index is valid even the temporal properties is inactive. This method is 
 .. versionadded:: 3.16
 %End
 
+    QList<QgsMeshDatasetIndex> datasetIndexInRelativeTimeInterval( const QgsInterval &startRelativeTime, const QgsInterval &endRelativeTime, int datasetGroupIndex ) const;
+%Docstring
+Returns a list of dataset indexes from datasets group that are in a interval time from the layer reference time.
+Dataset index is valid even the temporal properties is inactive. This method is used for calculation on mesh layer.
+
+:param startRelativeTime: the start time of the relative interval from the reference time.
+:param endRelativeTime: the end time of the relative interval from the reference time.
+:param datasetGroupIndex: the index of the dataset group
+
+:return: dataset index
+
+.. note::
+
+   indexes are used to distinguish all the dataset groups handled by the layer (from dataprovider, extra dataset group,...)
+   In the layer scope, those indexes are different from the data provider indexes.
+
+
+.. versionadded:: 3.22
+%End
+
     QgsMeshDatasetIndex activeScalarDatasetAtTime( const QgsDateTimeRange &timeRange ) const;
 %Docstring
 Returns dataset index from active scalar group depending on the time range.
@@ -660,6 +688,26 @@ The returned position is in map coordinates.
 .. versionadded:: 3.14
 %End
 
+    QList<int> selectVerticesByExpression( QgsExpression expression );
+%Docstring
+Returns a list of vertex indexes that meet the condition defined by ``expression`` with the context ``expressionContext``
+
+To express the relation with a vertex, the expression can be defined with function returning value
+linked to the current vertex, like " $vertex_z ", "$vertex_as_point"
+
+.. versionadded:: 3.22
+%End
+
+    QList<int> selectFacesByExpression( QgsExpression expression );
+%Docstring
+Returns a list of faces indexes that meet the condition defined by ``expression`` with the context ``expressionContext``
+
+To express the relation with a face, the expression can be defined with function returning value
+linked to the current face, like " $face_area "
+
+.. versionadded:: 3.22
+%End
+
     QgsMeshDatasetGroupTreeItem *datasetGroupTreeRootItem() const;
 %Docstring
 Returns the root items of the dataset group tree item
@@ -751,6 +799,17 @@ clean the undostack
 .. versionadded:: 3.22
 %End
 
+    bool reindex( const QgsCoordinateTransform &transform, bool renumber );
+%Docstring
+Re-indexes the faces and vertices, and renumber the indexes if ``renumber`` is ``True``.
+rebuilds the triangular mesh and its spatial index with ``transform``,
+clean the undostack
+
+Returns ``False`` if the operation fails
+
+.. versionadded:: 3.22
+%End
+
     QgsMeshEditor *meshEditor();
 %Docstring
 Returns a pointer to the mesh editor own by the mesh layer
@@ -777,12 +836,20 @@ Returns whether the mesh contains at mesh elements of given type
 %Docstring
 Returns the vertices count of the mesh frame
 
+.. note::
+
+   during mesh editing, some vertices can be void and are not included in this returned value
+
 .. versionadded:: 3.22
 %End
 
     int meshFaceCount() const;
 %Docstring
 Returns the faces count of the mesh frame
+
+.. note::
+
+   during mesh editing, some faces can be void and are not included in this returned value
 
 .. versionadded:: 3.22
 %End

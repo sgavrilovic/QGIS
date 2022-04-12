@@ -39,6 +39,7 @@ class QgsProcessingFeatureSource;
 class QgsProcessingAlgorithm;
 class QgsVectorTileLayer;
 class QgsPointCloudLayer;
+class QgsAnnotationLayer;
 
 #include <QString>
 #include <QVariant>
@@ -63,6 +64,7 @@ class CORE_EXPORT QgsProcessingUtils
      * \see compatibleMeshLayers()
      * \see compatiblePluginLayers()
      * \see compatiblePointCloudLayers()
+     * \see compatibleAnnotationLayers()
      * \see compatibleLayers()
      */
     static QList< QgsRasterLayer * > compatibleRasterLayers( QgsProject *project, bool sort = true );
@@ -82,6 +84,7 @@ class CORE_EXPORT QgsProcessingUtils
      * \see compatibleMeshLayers()
      * \see compatiblePluginLayers()
      * \see compatiblePointCloudLayers()
+     * \see compatibleAnnotationLayers()
      * \see compatibleLayers()
      */
     static QList< QgsVectorLayer * > compatibleVectorLayers( QgsProject *project,
@@ -99,6 +102,7 @@ class CORE_EXPORT QgsProcessingUtils
      * \see compatibleVectorLayers()
      * \see compatiblePluginLayers()
      * \see compatiblePointCloudLayers()
+     * \see compatibleAnnotationLayers()
      * \see compatibleLayers()
      *
      * \since QGIS 3.6
@@ -116,6 +120,7 @@ class CORE_EXPORT QgsProcessingUtils
      * \see compatibleVectorLayers()
      * \see compatibleMeshLayers()
      * \see compatiblePointCloudLayers()
+     * \see compatibleAnnotationLayers()
      * \see compatibleLayers()
      *
      * \since QGIS 3.22
@@ -133,11 +138,30 @@ class CORE_EXPORT QgsProcessingUtils
      * \see compatibleVectorLayers()
      * \see compatibleMeshLayers()
      * \see compatiblePluginLayers()
+     * \see compatibleAnnotationLayers()
      * \see compatibleLayers()
      *
      * \since QGIS 3.22
      */
     static QList<QgsPointCloudLayer *> compatiblePointCloudLayers( QgsProject *project, bool sort = true );
+
+    /**
+     * Returns a list of annotation layers from a \a project which are compatible with the processing
+     * framework.
+     *
+     * If the \a sort argument is TRUE then the layers will be sorted by their QgsMapLayer::name()
+     * value.
+     *
+     * \see compatibleRasterLayers()
+     * \see compatibleVectorLayers()
+     * \see compatibleMeshLayers()
+     * \see compatiblePluginLayers()
+     * \see compatiblePointCloudLayers()
+     * \see compatibleLayers()
+     *
+     * \since QGIS 3.22
+     */
+    static QList<QgsAnnotationLayer *> compatibleAnnotationLayers( QgsProject *project, bool sort = true );
 
     /**
      * Returns a list of map layers from a \a project which are compatible with the processing
@@ -182,6 +206,7 @@ class CORE_EXPORT QgsProcessingUtils
       Raster, //!< Raster layer type
       Mesh, //!< Mesh layer type, since QGIS 3.6
       PointCloud, //!< Point cloud layer type, since QGIS 3.22
+      Annotation, //!< Annotation layer type, since QGIS 3.22
     };
 
     /**
@@ -439,6 +464,7 @@ class CORE_EXPORT QgsProcessingUtils
      * a fallback value of "gpkg".
      *
      * \see defaultRasterExtension()
+     * \see defaultPointCloudExtension()
      * \since QGIS 3.10
      */
     static QString defaultVectorExtension();
@@ -451,9 +477,23 @@ class CORE_EXPORT QgsProcessingUtils
      * a fallback value of "tif".
      *
      * \see defaultVectorExtension()
+     * \see defaultPointCloudExtension()
      * \since QGIS 3.10
      */
     static QString defaultRasterExtension();
+
+    /**
+     * Returns the default point cloud extension to use, in the absence of all other constraints (e.g.
+     * provider based support for extensions).
+     *
+     * This method returns a fallback value of "las".
+     *
+     * \see defaultVectorExtension()
+     * \see defaultRasterExtension()
+     * \since QGIS 3.24
+     */
+    static QString defaultPointCloudExtension();
+
 
   private:
     static bool canUseLayer( const QgsRasterLayer *layer );
@@ -461,6 +501,7 @@ class CORE_EXPORT QgsProcessingUtils
     static bool canUseLayer( const QgsPluginLayer *layer );
     static bool canUseLayer( const QgsVectorTileLayer *layer );
     static bool canUseLayer( const QgsPointCloudLayer *layer );
+    static bool canUseLayer( const QgsAnnotationLayer *layer );
     static bool canUseLayer( const QgsVectorLayer *layer,
                              const QList< int > &sourceTypes = QList< int >() );
 

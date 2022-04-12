@@ -155,10 +155,11 @@ QgsMapSettings QgsTerrainTextureGenerator::baseMapSettings()
   mapSettings.setOutputSize( mTextureSize );
   mapSettings.setDestinationCrs( mMap.crs() );
   mapSettings.setBackgroundColor( mMap.backgroundColor() );
-  mapSettings.setFlag( QgsMapSettings::DrawLabeling, mMap.showLabels() );
-  mapSettings.setFlag( QgsMapSettings::Render3DMap );
+  mapSettings.setFlag( Qgis::MapSettingsFlag::DrawLabeling, mMap.showLabels() );
+  mapSettings.setFlag( Qgis::MapSettingsFlag::Render3DMap );
   mapSettings.setTransformContext( mMap.transformContext() );
   mapSettings.setPathResolver( mMap.pathResolver() );
+  mapSettings.setRendererUsage( mMap.rendererUsage() );
 
   QgsMapThemeCollection *mapThemes = mMap.mapThemeCollection();
   QString mapThemeName = mMap.terrainMapTheme();

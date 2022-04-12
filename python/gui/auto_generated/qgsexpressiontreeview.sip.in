@@ -68,6 +68,7 @@ Gets the type of expression item, e.g., header, field, ExpressionNode.
     static const int ITEM_TYPE_ROLE;
     static const int SEARCH_TAGS_ROLE;
     static const int ITEM_NAME_ROLE;
+    static const int LAYER_ID_ROLE;
 
 };
 
@@ -89,9 +90,17 @@ level down
     virtual bool filterAcceptsRow( int source_row, const QModelIndex &source_parent ) const;
 
 
+    void setFilterString( const QString &string );
+%Docstring
+Sets the search filter ``string``.
+
+.. versionadded:: 3.22
+%End
+
   protected:
 
     virtual bool lessThan( const QModelIndex &left, const QModelIndex &right ) const;
+
 
 };
 
@@ -213,7 +222,7 @@ Adds the current expression to the given ``collection``.
 By default it is saved to the collection "generic".
 %End
 
-    void saveToUserExpressions( const QString &label, const QString expression, const QString &helpText );
+    void saveToUserExpressions( const QString &label, const QString &expression, const QString &helpText );
 %Docstring
 Stores the user ``expression`` with given ``label`` and ``helpText``.
 %End

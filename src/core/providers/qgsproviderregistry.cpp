@@ -39,12 +39,28 @@
 #include "providers/ept/qgseptprovider.h"
 #endif
 
+#ifdef HAVE_COPC
+#include "providers/copc/qgscopcprovider.h"
+#endif
+
 #include "qgsruntimeprofiler.h"
 #include "qgsfileutils.h"
 
 #ifdef HAVE_STATIC_PROVIDERS
 #include "qgswmsprovider.h"
+#include "qgswcsprovider.h"
+#include "qgsdelimitedtextprovider.h"
+#include "qgsafsprovider.h"
+#include "qgsamsprovider.h"
+#ifdef HAVE_SPATIALITE
+#include "qgsspatialiteprovider.h"
+#include "qgswfsprovider.h"
+#include "qgsoapifprovider.h"
+#include "qgsvirtuallayerprovider.h"
+#endif
+#ifdef HAVE_POSTGRESQL
 #include "qgspostgresprovider.h"
+#endif
 #endif
 
 #include <QString>
@@ -185,12 +201,30 @@ void QgsProviderRegistry::init()
     mProviders[ pc->key() ] = pc;
   }
 #endif
-
+#ifdef HAVE_COPC
+  {
+    const QgsScopedRuntimeProfile profile( QObject::tr( "Create COPC point cloud provider" ) );
+    QgsProviderMetadata *pc = new QgsCopcProviderMetadata();
+    mProviders[ pc->key() ] = pc;
+  }
+#endif
   registerUnusableUriHandler( new PdalUnusableUriHandlerInterface() );
 
 #ifdef HAVE_STATIC_PROVIDERS
   mProviders[ QgsWmsProvider::providerKey() ] = new QgsWmsProviderMetadata();
+  mProviders[ QgsWcsProvider::providerKey() ] = new QgsWcsProviderMetadata();
+  mProviders[ QgsDelimitedTextProvider::providerKey() ] = new QgsDelimitedTextProviderMetadata();
+  mProviders[ QgsAfsProvider::providerKey() ] = new QgsAfsProviderMetadata();
+  mProviders[ QgsAmsProvider::providerKey() ] = new QgsAmsProviderMetadata();
+#ifdef HAVE_SPATIALITE
+  mProviders[ QgsSpatiaLiteProvider::providerKey() ] = new QgsSpatiaLiteProviderMetadata();
+  mProviders[ QgsWFSProvider::providerKey() ] = new QgsWfsProviderMetadata();
+  mProviders[ QgsOapifProvider::providerKey() ] = new QgsOapifProviderMetadata();
+  mProviders[ QgsVirtualLayerProvider::providerKey() ] = new QgsVirtualLayerProviderMetadata();
+#endif
+#ifdef HAVE_POSTGRESQL
   mProviders[ QgsPostgresProvider::providerKey() ] = new QgsPostgresProviderMetadata();
+#endif
 #endif
 
   // add dynamic providers
@@ -602,7 +636,22 @@ int QgsProviderRegistry::listStyles( const QString &providerKey, const QString &
   return res;
 }
 
-QString QgsProviderRegistry::getStyleById( const QString &providerKey, const QString &uri, QString styleId, QString &errCause )
+bool QgsProviderRegistry::styleExists( const QString &providerKey, const QString &uri, const QString &styleId, QString &errorCause )
+{
+  errorCause.clear();
+
+  if ( QgsProviderMetadata *meta = findMetadata_( mProviders, providerKey ) )
+  {
+    return meta->styleExists( uri, styleId, errorCause );
+  }
+  else
+  {
+    errorCause = QObject::tr( "Unable to load %1 provider" ).arg( providerKey );
+    return false;
+  }
+}
+
+QString QgsProviderRegistry::getStyleById( const QString &providerKey, const QString &uri, const QString &styleId, QString &errCause )
 {
   QString ret;
   QgsProviderMetadata *meta = findMetadata_( mProviders, providerKey );
@@ -617,7 +666,7 @@ QString QgsProviderRegistry::getStyleById( const QString &providerKey, const QSt
   return ret;
 }
 
-bool QgsProviderRegistry::deleteStyleById( const QString &providerKey, const QString &uri, QString styleId, QString &errCause )
+bool QgsProviderRegistry::deleteStyleById( const QString &providerKey, const QString &uri, const QString &styleId, QString &errCause )
 {
   const bool ret( false );
 

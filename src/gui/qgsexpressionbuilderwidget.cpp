@@ -251,7 +251,7 @@ QgsExpressionBuilderWidget::~QgsExpressionBuilderWidget()
   delete mExpressionTreeMenuProvider;
 }
 
-void QgsExpressionBuilderWidget::init( const QgsExpressionContext &context, const QString &recentCollection, const Flags &flags )
+void QgsExpressionBuilderWidget::init( const QgsExpressionContext &context, const QString &recentCollection, QgsExpressionBuilderWidget::Flags flags )
 {
   setExpressionContext( context );
 
@@ -262,13 +262,13 @@ void QgsExpressionBuilderWidget::init( const QgsExpressionContext &context, cons
     mExpressionTreeView->loadUserExpressions();
 }
 
-void QgsExpressionBuilderWidget::initWithLayer( QgsVectorLayer *layer, const QgsExpressionContext &context, const QString &recentCollection, const Flags &flags )
+void QgsExpressionBuilderWidget::initWithLayer( QgsVectorLayer *layer, const QgsExpressionContext &context, const QString &recentCollection, QgsExpressionBuilderWidget::Flags flags )
 {
   init( context, recentCollection, flags );
   setLayer( layer );
 }
 
-void QgsExpressionBuilderWidget::initWithFields( const QgsFields &fields, const QgsExpressionContext &context, const QString &recentCollection, const Flags &flags )
+void QgsExpressionBuilderWidget::initWithFields( const QgsFields &fields, const QgsExpressionContext &context, const QString &recentCollection, QgsExpressionBuilderWidget::Flags flags )
 {
   init( context, recentCollection, flags );
   mExpressionTreeView->loadFieldNames( fields );
@@ -352,6 +352,21 @@ void QgsExpressionBuilderWidget::runPythonCode( const QString &code )
   mExpressionTreeView->refresh();
 }
 
+QgsVectorLayer *QgsExpressionBuilderWidget::contextLayer( const QgsExpressionItem *item ) const
+{
+  QgsVectorLayer *layer = nullptr;
+  if ( ! item->data( QgsExpressionItem::LAYER_ID_ROLE ).isNull() )
+  {
+    layer = qobject_cast<QgsVectorLayer *>( QgsProject::instance()->mapLayer( item->data( QgsExpressionItem::LAYER_ID_ROLE ).toString() ) );
+  }
+  else
+  {
+    layer = mLayer;
+  }
+  return layer;
+}
+
+
 void QgsExpressionBuilderWidget::saveFunctionFile( QString fileName )
 {
   QDir myDir( mFunctionsPath );
@@ -402,10 +417,10 @@ void QgsExpressionBuilderWidget::updateFunctionFileList( const QString &path )
   if ( cmbFileNames->count() == 0 )
   {
     // Create default sample entry.
-    newFunctionFile( "default" );
+    newFunctionFile( QStringLiteral( "default" ) );
     txtPython->setText( QStringLiteral( "'''\n#Sample custom function file\n"
                                         "#(uncomment to use and customize or Add button to create a new file) \n%1 \n '''" ).arg( txtPython->text() ) );
-    saveFunctionFile( "default" );
+    saveFunctionFile( QStringLiteral( "default" ) );
   }
 }
 
@@ -507,16 +522,16 @@ void QgsExpressionBuilderWidget::loadFieldsAndValues( const QMap<QString, QStrin
   // This is not maintained and setLayer() should be used instead.
 }
 
-void QgsExpressionBuilderWidget::fillFieldValues( const QString &fieldName, int countLimit, bool forceUsedValues )
+void QgsExpressionBuilderWidget::fillFieldValues( const QString &fieldName, QgsVectorLayer *layer, int countLimit, bool forceUsedValues )
 {
   // TODO We should really return a error the user of the widget that
   // the there is no layer set.
-  if ( !mLayer )
+  if ( !layer )
     return;
 
   // TODO We should thread this so that we don't hold the user up if the layer is massive.
 
-  const QgsFields fields = mLayer->fields();
+  const QgsFields fields = layer->fields();
   int fieldIndex = fields.lookupField( fieldName );
 
   if ( fieldIndex < 0 )
@@ -534,7 +549,7 @@ void QgsExpressionBuilderWidget::fillFieldValues( const QString &fieldName, int 
   }
   else
   {
-    values = qgis::setToList( mLayer->uniqueValues( fieldIndex, countLimit ) );
+    values = qgis::setToList( layer->uniqueValues( fieldIndex, countLimit ) );
   }
   std::sort( values.begin(), values.end() );
 
@@ -542,15 +557,44 @@ void QgsExpressionBuilderWidget::fillFieldValues( const QString &fieldName, int 
   for ( const QVariant &value : std::as_const( values ) )
   {
     QString strValue;
+    bool forceRepresentedValue = false;
     if ( value.isNull() )
       strValue = QStringLiteral( "NULL" );
     else if ( value.type() == QVariant::Int || value.type() == QVariant::Double || value.type() == QVariant::LongLong )
       strValue = value.toString();
+    else if ( value.type() == QVariant::StringList )
+    {
+      QString result;
+      const QStringList strList = value.toStringList();
+      for ( QString str : strList )
+      {
+        if ( !result.isEmpty() )
+          result.append( QStringLiteral( ", " ) );
+
+        result.append( '\'' + str.replace( '\'', QLatin1String( "''" ) ) + '\'' );
+      }
+      strValue = QStringLiteral( "array(%1)" ).arg( result );
+      forceRepresentedValue = true;
+    }
+    else if ( value.type() == QVariant::List )
+    {
+      QString result;
+      const QList list = value.toList();
+      for ( const QVariant &item : list )
+      {
+        if ( !result.isEmpty() )
+          result.append( QStringLiteral( ", " ) );
+
+        result.append( item.toString() );
+      }
+      strValue = QStringLiteral( "array(%1)" ).arg( result );
+      forceRepresentedValue = true;
+    }
     else
       strValue = '\'' + value.toString().replace( '\'', QLatin1String( "''" ) ) + '\'';
 
-    QString representedValue = formatter->representValue( mLayer, fieldIndex, setup.config(), QVariant(), value );
-    if ( representedValue != value.toString() )
+    QString representedValue = formatter->representValue( layer, fieldIndex, setup.config(), QVariant(), value );
+    if ( forceRepresentedValue || representedValue != value.toString() )
       representedValue = representedValue + QStringLiteral( " [" ) + strValue + ']';
 
     QStandardItem *item = new QStandardItem( representedValue );
@@ -598,7 +642,7 @@ void QgsExpressionBuilderWidget::loadUserExpressions( )
   mExpressionTreeView->loadUserExpressions();
 }
 
-void QgsExpressionBuilderWidget::saveToUserExpressions( const QString &label, const QString expression, const QString &helpText )
+void QgsExpressionBuilderWidget::saveToUserExpressions( const QString &label, const QString &expression, const QString &helpText )
 {
   mExpressionTreeView->saveToUserExpressions( label, expression, helpText );
 }
@@ -656,6 +700,11 @@ bool QgsExpressionBuilderWidget::parserError() const
   return mExpressionPreviewWidget->parserError();
 }
 
+void QgsExpressionBuilderWidget::setExpressionPreviewVisible( bool isVisible )
+{
+  mExpressionPreviewWidget->setVisible( isVisible );
+}
+
 bool QgsExpressionBuilderWidget::evalError() const
 {
   return mExpressionPreviewWidget->evalError();
@@ -685,7 +734,7 @@ void QgsExpressionBuilderWidget::showEvent( QShowEvent *e )
   txtExpressionString->setFocus();
 }
 
-void QgsExpressionBuilderWidget::createErrorMarkers( QList<QgsExpression::ParserError> errors )
+void QgsExpressionBuilderWidget::createErrorMarkers( const QList<QgsExpression::ParserError> &errors )
 {
   clearErrors();
   for ( const QgsExpression::ParserError &error : errors )
@@ -742,6 +791,13 @@ void QgsExpressionBuilderWidget::createMarkers( const QgsExpressionNode *inNode 
       createMarkers( node->operand() );
       break;
     }
+    case QgsExpressionNode::NodeType::ntBetweenOperator:
+    {
+      const QgsExpressionNodeBetweenOperator *node = static_cast<const QgsExpressionNodeBetweenOperator *>( inNode );
+      createMarkers( node->lowerBound() );
+      createMarkers( node->higherBound() );
+      break;
+    }
     case QgsExpressionNode::NodeType::ntBinaryOperator:
     {
       const QgsExpressionNodeBinaryOperator *node = static_cast<const QgsExpressionNodeBinaryOperator *>( inNode );
@@ -769,7 +825,8 @@ void QgsExpressionBuilderWidget::createMarkers( const QgsExpressionNode *inNode 
     case QgsExpressionNode::NodeType::ntCondition:
     {
       const QgsExpressionNodeCondition *node = static_cast<const QgsExpressionNodeCondition *>( inNode );
-      for ( QgsExpressionNodeCondition::WhenThen *cond : node->conditions() )
+      const QList<QgsExpressionNodeCondition::WhenThen *> conditions = node->conditions();
+      for ( QgsExpressionNodeCondition::WhenThen *cond : conditions )
       {
         createMarkers( cond->whenExp() );
         createMarkers( cond->thenExp() );
@@ -829,49 +886,81 @@ void QgsExpressionBuilderWidget::operatorButtonClicked()
 void QgsExpressionBuilderWidget::loadSampleValues()
 {
   QgsExpressionItem *item = mExpressionTreeView->currentItem();
+  if ( ! item )
+  {
+    return;
+  }
+
+  QgsVectorLayer *layer { contextLayer( item ) };
   // TODO We should really return a error the user of the widget that
   // the there is no layer set.
-  if ( !mLayer || !item )
+  if ( !layer )
+  {
     return;
+  }
 
   mValueGroupBox->show();
-  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), 10 );
+  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), layer, 10 );
 }
 
 void QgsExpressionBuilderWidget::loadAllValues()
 {
   QgsExpressionItem *item = mExpressionTreeView->currentItem();
+  if ( ! item )
+  {
+    return;
+  }
+
+  QgsVectorLayer *layer { contextLayer( item ) };
   // TODO We should really return a error the user of the widget that
   // the there is no layer set.
-  if ( !mLayer || !item )
+  if ( !layer )
+  {
     return;
+  }
 
   mValueGroupBox->show();
-  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), -1 );
+  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), layer, -1 );
 }
 
 void QgsExpressionBuilderWidget::loadSampleUsedValues()
 {
   QgsExpressionItem *item = mExpressionTreeView->currentItem();
+  if ( ! item )
+  {
+    return;
+  }
+
+  QgsVectorLayer *layer { contextLayer( item ) };
   // TODO We should really return a error the user of the widget that
   // the there is no layer set.
-  if ( !mLayer || !item )
+  if ( !layer )
+  {
     return;
+  }
 
   mValueGroupBox->show();
-  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), 10, true );
+  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), layer, 10, true );
 }
 
 void QgsExpressionBuilderWidget::loadAllUsedValues()
 {
   QgsExpressionItem *item = mExpressionTreeView->currentItem();
+  if ( ! item )
+  {
+    return;
+  }
+
+  QgsVectorLayer *layer { contextLayer( item ) };
   // TODO We should really return a error the user of the widget that
   // the there is no layer set.
-  if ( !mLayer || !item )
+  if ( !layer )
+  {
     return;
+  }
 
   mValueGroupBox->show();
-  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), -1, true );
+  fillFieldValues( item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString(), layer, -1, true );
 }
 
 void QgsExpressionBuilderWidget::txtPython_textChanged()
@@ -1123,7 +1212,7 @@ QMenu *QgsExpressionBuilderWidget::ExpressionTreeMenuProvider::createContextMenu
 
     if ( formatterCanProvideAvailableValues( layer, item->data( QgsExpressionItem::ITEM_NAME_ROLE ).toString() ) )
     {
-      menu->addAction( tr( "Load First 10 Unique Used Values" ), mExpressionBuilderWidget, SLOT( loadSampleUsedValues() ) );
+      menu->addAction( tr( "Load First 10 Unique Used Values" ), mExpressionBuilderWidget, &QgsExpressionBuilderWidget::loadSampleUsedValues );
       menu->addAction( tr( "Load All Unique Used Values" ), mExpressionBuilderWidget, &QgsExpressionBuilderWidget::loadAllUsedValues );
     }
   }

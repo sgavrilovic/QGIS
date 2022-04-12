@@ -102,6 +102,11 @@ RUN  apt-get update \
     hdbcli \
   && apt-get clean
 
+# Node.js and Yarn for server landingpage webapp
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+RUN apt-get install -y nodejs
+RUN corepack enable
+
 # Oracle : client side
 RUN curl https://download.oracle.com/otn_software/linux/instantclient/199000/instantclient-basic-linux.x64-19.9.0.0.0dbru.zip > instantclient-basic-linux.x64-19.9.0.0.0dbru.zip
 RUN curl https://download.oracle.com/otn_software/linux/instantclient/199000/instantclient-sdk-linux.x64-19.9.0.0.0dbru.zip > instantclient-sdk-linux.x64-19.9.0.0.0dbru.zip
@@ -209,13 +214,13 @@ RUN  apt-get update \
   && apt-get clean
 
 # Clazy
-RUN curl -k https://downloads.kdab.com/clazy/1.6/Clazy-x86_64-1.6.AppImage -o /tmp/Clazy.AppImage \
-  && chmod +x /tmp/Clazy.AppImage \
-  && mkdir /opt/clazy \
-  && cd /opt/clazy \
-  && /tmp/Clazy.AppImage --appimage-extract \
-  && ln -s /opt/clazy/squashfs-root/AppRun /usr/bin/clazy \
-  && ln -s ../../bin/ccache /usr/lib/ccache/clazy
+#RUN curl -k https://downloads.kdab.com/clazy/1.6/Clazy-x86_64-1.6.AppImage -o /tmp/Clazy.AppImage \
+#  && chmod +x /tmp/Clazy.AppImage \
+#  && mkdir /opt/clazy \
+#  && cd /opt/clazy \
+#  && /tmp/Clazy.AppImage --appimage-extract \
+#  && ln -s /opt/clazy/squashfs-root/AppRun /usr/bin/clazy \
+#  && ln -s ../../bin/ccache /usr/lib/ccache/clazy
 
 ENV PATH="/usr/local/bin:${PATH}"
 

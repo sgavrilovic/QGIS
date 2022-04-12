@@ -169,12 +169,15 @@ QVariantMap QgsJoinByNearestAlgorithm::processAlgorithm( const QVariantMap &para
   const QgsAttributeList fields2Fetch = fields2Indices;
 
   QgsFields outFields = QgsProcessingUtils::combineFields( input->fields(), outFields2 );
-  outFields.append( QgsField( QStringLiteral( "n" ), QVariant::Int ) );
-  outFields.append( QgsField( QStringLiteral( "distance" ), QVariant::Double ) );
-  outFields.append( QgsField( QStringLiteral( "feature_x" ), QVariant::Double ) );
-  outFields.append( QgsField( QStringLiteral( "feature_y" ), QVariant::Double ) );
-  outFields.append( QgsField( QStringLiteral( "nearest_x" ), QVariant::Double ) );
-  outFields.append( QgsField( QStringLiteral( "nearest_y" ), QVariant::Double ) );
+
+  QgsFields resultFields;
+  resultFields.append( QgsField( QStringLiteral( "n" ), QVariant::Int ) );
+  resultFields.append( QgsField( QStringLiteral( "distance" ), QVariant::Double ) );
+  resultFields.append( QgsField( QStringLiteral( "feature_x" ), QVariant::Double ) );
+  resultFields.append( QgsField( QStringLiteral( "feature_y" ), QVariant::Double ) );
+  resultFields.append( QgsField( QStringLiteral( "nearest_x" ), QVariant::Double ) );
+  resultFields.append( QgsField( QStringLiteral( "nearest_y" ), QVariant::Double ) );
+  outFields = QgsProcessingUtils::combineFields( outFields, resultFields );
 
   QString dest;
   std::unique_ptr< QgsFeatureSink > sink( parameterAsSink( parameters, QStringLiteral( "OUTPUT" ), context, dest, outFields,
@@ -270,7 +273,7 @@ QVariantMap QgsJoinByNearestAlgorithm::processAlgorithm( const QVariantMap &para
 
       if ( nearest.count() > neighbors + ( sameSourceAndTarget ? 1 : 0 ) )
       {
-        feedback->pushInfo( QObject::tr( "Multiple matching features found at same distance from search feature, found %1 features instead of %2" ).arg( nearest.count() - ( sameSourceAndTarget ? 1 : 0 ) ).arg( neighbors ) );
+        feedback->pushInfo( QObject::tr( "Multiple matching features found at same distance from search feature, found %n feature(s) instead of %1", nullptr, nearest.count() - ( sameSourceAndTarget ? 1 : 0 ) ).arg( neighbors ) );
       }
       QgsFeature out;
       out.setGeometry( f.geometry() );

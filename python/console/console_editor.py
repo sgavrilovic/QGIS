@@ -462,8 +462,8 @@ class Editor(QgsCodeEditorPython):
                 tmpFile = self.createTempFile()
                 filename = tmpFile
 
-            self.parent.pc.shell.runCommand("exec(open('{0}'.encode('{1}')).read())"
-                                            .format(filename.replace("\\", "/"), sys.getfilesystemencoding()))
+            self.parent.pc.shell.runCommand("exec(Path('{0}').read_text())"
+                                            .format(filename.replace("\\", "/")))
 
     def runSelectedCode(self):  # spellok
         cmd = self.selectedText()
@@ -652,7 +652,7 @@ class EditorTab(QWidget):
             folder = self.pc.settings.value("pythonConsole/lastDirPath", QDir.homePath())
             self.path, filter = QFileDialog().getSaveFileName(self,
                                                               saveTr,
-                                                              os.path.join(folder, self.tw.tabText(index) + '.py'),
+                                                              os.path.join(folder, self.tw.tabText(index).replace('*', '') + '.py'),
                                                               "Script file (*.py)")
             # If the user didn't select a file, abort the save operation
             if len(self.path) == 0:

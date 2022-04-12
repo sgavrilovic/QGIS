@@ -627,7 +627,7 @@ void QgsLayoutItemMapGrid::draw( QPainter *p )
   //setup render context
   QgsRenderContext context = QgsLayoutUtils::createRenderContextForLayout( mLayout, p );
   context.setForceVectorOutput( true );
-  context.setFlag( QgsRenderContext::ApplyScalingWorkaroundForTextRendering, true );
+  context.setFlag( Qgis::RenderContextFlag::ApplyScalingWorkaroundForTextRendering, true );
   const QgsExpressionContext expressionContext = createExpressionContext();
   context.setExpressionContext( expressionContext );
 
@@ -1948,6 +1948,13 @@ void QgsLayoutItemMapGrid::refreshDataDefinedProperties()
 {
   const QgsExpressionContext context = createExpressionContext();
 
+  // if we are changing the grid interval or offset, then we also have to mark the transform as dirty
+  mTransformDirty = mTransformDirty
+                    || mDataDefinedProperties.isActive( QgsLayoutObject::MapGridIntervalX )
+                    || mDataDefinedProperties.isActive( QgsLayoutObject::MapGridIntervalY )
+                    || mDataDefinedProperties.isActive( QgsLayoutObject::MapGridOffsetX )
+                    || mDataDefinedProperties.isActive( QgsLayoutObject::MapGridOffsetY );
+
   mEvaluatedEnabled = mDataDefinedProperties.valueAsBool( QgsLayoutObject::MapGridEnabled, context, enabled() );
   switch ( mGridUnit )
   {
@@ -1975,6 +1982,7 @@ void QgsLayoutItemMapGrid::refreshDataDefinedProperties()
         const double interval = QgsLayoutUtils::calculatePrettySize( minUnitsPerSeg, maxUnitsPerSeg );
         mEvaluatedIntervalX = interval;
         mEvaluatedIntervalY = interval;
+        mTransformDirty = true;
       }
       break;
     }
@@ -2580,6 +2588,8 @@ int QgsLayoutItemMapGrid::crsGridParams( QgsRectangle &crsRect, QgsCoordinateTra
   try
   {
     const QgsCoordinateTransform tr( mMap->crs(), mCRS, mLayout->project() );
+    QgsCoordinateTransform extentTransform = tr;
+    extentTransform.setBallparkTransformsAreAppropriate( true );
     const QPolygonF mapPolygon = mMap->transformedMapPolygon();
     const QRectF mbr = mapPolygon.boundingRect();
     const QgsRectangle mapBoundingRect( mbr.left(), mbr.bottom(), mbr.right(), mbr.top() );
@@ -2597,17 +2607,17 @@ int QgsLayoutItemMapGrid::crsGridParams( QgsRectangle &crsRect, QgsCoordinateTra
       if ( lowerLeft.x() > upperRight.x() )
       {
         //we've crossed the line
-        crsRect = tr.transformBoundingBox( mapBoundingRect, QgsCoordinateTransform::ForwardTransform, true );
+        crsRect = extentTransform.transformBoundingBox( mapBoundingRect, Qgis::TransformDirection::Forward, true );
       }
       else
       {
         //didn't cross the line
-        crsRect = tr.transformBoundingBox( mapBoundingRect );
+        crsRect = extentTransform.transformBoundingBox( mapBoundingRect );
       }
     }
     else
     {
-      crsRect = tr.transformBoundingBox( mapBoundingRect );
+      crsRect = extentTransform.transformBoundingBox( mapBoundingRect );
     }
 
     inverseTransform = QgsCoordinateTransform( mCRS, mMap->crs(), mLayout->project() );

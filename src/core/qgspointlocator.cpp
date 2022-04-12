@@ -27,6 +27,7 @@
 #include "qgsexpressioncontextutils.h"
 #include "qgslinestring.h"
 #include "qgscurvepolygon.h"
+#include "qgsrendercontext.h"
 #include "qgspointlocatorinittask.h"
 #include <spatialindex/SpatialIndex.h>
 
@@ -943,11 +944,11 @@ bool QgsPointLocator::init( int maxFeaturesToIndex, bool relaxed )
        || !mLayer->dataProvider()->isValid() )
     return false;
 
-  mRenderer.reset( mLayer->renderer() ? mLayer->renderer()->clone() : nullptr );
   mSource.reset( new QgsVectorLayerFeatureSource( mLayer ) );
 
   if ( mContext )
   {
+    mRenderer.reset( mLayer->renderer() ? mLayer->renderer()->clone() : nullptr );
     mContext->expressionContext() << QgsExpressionContextUtils::layerScope( mLayer );
   }
 
@@ -1021,11 +1022,13 @@ bool QgsPointLocator::rebuildIndex( int maxFeaturesToIndex )
   if ( mExtent )
   {
     QgsRectangle rect = *mExtent;
-    if ( mTransform.isValid() )
+    if ( !mTransform.isShortCircuited() )
     {
+      QgsCoordinateTransform rectTransform = mTransform;
+      rectTransform.setBallparkTransformsAreAppropriate( true );
       try
       {
-        rect = mTransform.transformBoundingBox( rect, QgsCoordinateTransform::ReverseTransform );
+        rect = rectTransform.transformBoundingBox( rect, Qgis::TransformDirection::Reverse );
       }
       catch ( const QgsException &e )
       {

@@ -37,7 +37,7 @@ QgsRasterLayerRendererFeedback::QgsRasterLayerRendererFeedback( QgsRasterLayerRe
   : mR( r )
   , mMinimalPreviewInterval( 250 )
 {
-  setRenderPartialOutput( r->renderContext()->testFlag( QgsRenderContext::RenderPartialOutput ) );
+  setRenderPartialOutput( r->renderContext()->testFlag( Qgis::RenderContextFlag::RenderPartialOutput ) );
 }
 
 void QgsRasterLayerRendererFeedback::onNewData()
@@ -203,10 +203,11 @@ QgsRasterLayerRenderer::QgsRasterLayerRenderer( QgsRasterLayer *layer, QgsRender
   mRasterViewPort->mHeight = static_cast<qgssize>( std::abs( mRasterViewPort->mBottomRightPoint.y() - mRasterViewPort->mTopLeftPoint.y() ) );
 
 
+  const double dpi = 25.4 * rendererContext.scaleFactor();
   if ( mProviderCapabilities & QgsRasterDataProvider::DpiDependentData
        && rendererContext.dpiTarget() >= 0.0 )
   {
-    const double dpiScaleFactor = rendererContext.dpiTarget() / rendererContext.painter()->device()->logicalDpiX();
+    const double dpiScaleFactor = rendererContext.dpiTarget() / dpi;
     mRasterViewPort->mWidth *= dpiScaleFactor;
     mRasterViewPort->mHeight *= dpiScaleFactor;
   }
@@ -240,16 +241,15 @@ QgsRasterLayerRenderer::QgsRasterLayerRenderer( QgsRasterLayer *layer, QgsRender
   // TODO R->mLastViewPort = *mRasterViewPort;
 
   // TODO: is it necessary? Probably WMS only?
-  layer->dataProvider()->setDpi( 25.4 * rendererContext.scaleFactor() );
-
+  layer->dataProvider()->setDpi( dpi );
 
   // copy the whole raster pipe!
   mPipe = new QgsRasterPipe( *layer->pipe() );
   QObject::connect( mPipe->provider(), &QgsRasterDataProvider::statusChanged, layer, &QgsRasterLayer::statusChanged );
   QgsRasterRenderer *rasterRenderer = mPipe->renderer();
   if ( rasterRenderer
-       && !( rendererContext.flags() & QgsRenderContext::RenderPreviewJob )
-       && !( rendererContext.flags() & QgsRenderContext::Render3DMap ) )
+       && !( rendererContext.flags() & Qgis::RenderContextFlag::RenderPreviewJob )
+       && !( rendererContext.flags() & Qgis::RenderContextFlag::Render3DMap ) )
   {
     layer->refreshRendererIfNeeded( rasterRenderer, rendererContext.extent() );
   }
@@ -261,11 +261,11 @@ QgsRasterLayerRenderer::QgsRasterLayerRenderer( QgsRasterLayer *layer, QgsRender
   {
     switch ( temporalProperties->mode() )
     {
-      case QgsRasterLayerTemporalProperties::ModeFixedTemporalRange:
-      case QgsRasterLayerTemporalProperties::ModeRedrawLayerOnly:
+      case Qgis::RasterTemporalMode::FixedTemporalRange:
+      case Qgis::RasterTemporalMode::RedrawLayerOnly:
         break;
 
-      case QgsRasterLayerTemporalProperties::ModeTemporalRangeFromDataProvider:
+      case Qgis::RasterTemporalMode::TemporalRangeFromDataProvider:
         // in this mode we need to pass on the desired render temporal range to the data provider
         if ( mPipe->provider()->temporalCapabilities() )
         {
@@ -282,6 +282,8 @@ QgsRasterLayerRenderer::QgsRasterLayerRenderer( QgsRasterLayer *layer, QgsRender
   }
 
   mClippingRegions = QgsMapClippingUtils::collectClippingRegionsForLayer( *renderContext(), layer );
+
+  mFeedback->setRenderContext( rendererContext );
 }
 
 QgsRasterLayerRenderer::~QgsRasterLayerRenderer()
@@ -295,7 +297,7 @@ QgsRasterLayerRenderer::~QgsRasterLayerRenderer()
 bool QgsRasterLayerRenderer::render()
 {
   // Skip rendering of out of view tiles (xyz)
-  if ( !mRasterViewPort || ( renderContext()->testFlag( QgsRenderContext::Flag::RenderPreviewJob ) &&
+  if ( !mRasterViewPort || ( renderContext()->testFlag( Qgis::RenderContextFlag::RenderPreviewJob ) &&
                              !( mProviderCapabilities &
                                 QgsRasterInterface::Capability::Prefetch ) ) )
     return true;
@@ -337,6 +339,9 @@ bool QgsRasterLayerRenderer::render()
     projector->setCrs( mRasterViewPort->mSrcCRS, mRasterViewPort->mDestCRS, mRasterViewPort->mTransformContext );
   }
 
+  // important -- disable SmoothPixmapTransform for raster layer renders. We want individual pixels to be clearly defined!
+  renderContext()->painter()->setRenderHint( QPainter::SmoothPixmapTransform, false );
+
   // Drawer to pipe?
   QgsRasterIterator iterator( mPipe->last() );
   QgsRasterDrawer drawer( &iterator, renderContext()->dpiTarget() );
@@ -367,6 +372,5 @@ QgsFeedback *QgsRasterLayerRenderer::feedback() const
 bool QgsRasterLayerRenderer::forceRasterRender() const
 {
   // preview of intermediate raster rendering results requires a temporary output image
-  return renderContext()->testFlag( QgsRenderContext::RenderPartialOutput );
+  return renderContext()->testFlag( Qgis::RenderContextFlag::RenderPartialOutput );
 }
-

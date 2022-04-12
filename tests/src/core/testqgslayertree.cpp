@@ -30,6 +30,7 @@
 #include <qgssettings.h>
 #include "qgslegendsettings.h"
 #include "qgsmarkersymbol.h"
+#include "qgsannotationlayer.h"
 #include <QSignalSpy>
 
 class TestQgsLayerTree : public QObject
@@ -62,6 +63,8 @@ class TestQgsLayerTree : public QObject
     void testSymbolText();
     void testNodeDepth();
     void testRasterSymbolNode();
+    void testLayersEditable();
+    void testInsertLayerBelow();
 
   private:
 
@@ -898,6 +901,59 @@ void TestQgsLayerTree::testRasterSymbolNode()
   const QgsRasterSymbolLegendNode rasterNode2( n.get(), QColor( 255, 0, 0 ), QStringLiteral( "my node" ), nullptr, true, QStringLiteral( "key" ) );
   QVERIFY( rasterNode2.isCheckable() );
   QCOMPARE( static_cast< int >( rasterNode2.flags() ), static_cast< int >( Qt::ItemIsEnabled | Qt::ItemIsUserCheckable ) );
+}
+
+void TestQgsLayerTree::testLayersEditable()
+{
+  QgsProject project;
+
+  QgsVectorLayer *vl1 = new QgsVectorLayer( QStringLiteral( "Point?field=col1:integer" ), QStringLiteral( "vl1" ), QStringLiteral( "memory" ) );
+  QgsVectorLayer *vl2 = new QgsVectorLayer( QStringLiteral( "Point?field=col1:integer" ), QStringLiteral( "vl1" ), QStringLiteral( "memory" ) );
+  QgsAnnotationLayer *al = new QgsAnnotationLayer( QStringLiteral( "al" ), QgsAnnotationLayer::LayerOptions( project.transformContext() ) );
+
+  project.addMapLayer( vl1 );
+  project.addMapLayer( vl2 );
+  project.addMapLayer( al );
+
+  QgsLayerTree root;
+  QgsLayerTreeLayer *nodeVl1 = root.addLayer( vl1 );
+  QgsLayerTreeGroup *nodeGrp = root.addGroup( QStringLiteral( "grp" ) );
+  QgsLayerTreeLayer *nodeVl2 = nodeGrp->addLayer( vl2 );
+  QgsLayerTreeLayer *nodeAl = nodeGrp->addLayer( al );
+  QVERIFY( !QgsLayerTreeUtils::layersEditable( {} ) );
+  QVERIFY( !QgsLayerTreeUtils::layersEditable( {nodeVl1, nodeVl2} ) );
+  vl1->startEditing();
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeVl1} ) );
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeVl1, nodeVl2} ) );
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeVl2, nodeVl1 } ) );
+
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeAl} ) );
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeAl, nodeVl1} ) );
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeAl, nodeVl2} ) );
+
+  // ignore layers which can't be toggled (the annotation layer)
+  QVERIFY( !QgsLayerTreeUtils::layersEditable( {nodeAl}, true ) );
+  QVERIFY( QgsLayerTreeUtils::layersEditable( {nodeAl, nodeVl1}, true ) );
+  QVERIFY( !QgsLayerTreeUtils::layersEditable( {nodeAl, nodeVl2}, true ) );
+}
+
+void TestQgsLayerTree::testInsertLayerBelow()
+{
+  QgsVectorLayer *topLayer = new QgsVectorLayer( QStringLiteral( "Point?field=col1:integer" ), QStringLiteral( "Top Layer" ), QStringLiteral( "memory" ) );
+  QVERIFY( topLayer->isValid() );
+  QgsVectorLayer *bottomLayer = new QgsVectorLayer( QStringLiteral( "Point?field=col1:integer" ), QStringLiteral( "Bottom Layer" ), QStringLiteral( "memory" ) );
+  QVERIFY( bottomLayer->isValid() );
+
+  QgsLayerTree root;
+  root.addLayer( topLayer );
+  QCOMPARE( QgsLayerTreeUtils::countMapLayerInTree( &root, topLayer ), 1 );
+  QCOMPARE( QgsLayerTreeUtils::countMapLayerInTree( &root, bottomLayer ), 0 );
+
+  QgsLayerTreeUtils::insertLayerBelow( &root, topLayer, bottomLayer );
+  QCOMPARE( QgsLayerTreeUtils::countMapLayerInTree( &root, bottomLayer ), 1 );
+
+  // Check the order of the layers
+  QCOMPARE( root.findLayerIds(), QStringList() << topLayer->id() << bottomLayer->id() );
 }
 
 QGSTEST_MAIN( TestQgsLayerTree )

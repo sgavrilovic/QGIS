@@ -1,0 +1,204 @@
+/************************************************************************
+ * This file has been generated automatically from                      *
+ *                                                                      *
+ * src/core/elevation/qgsabstractprofilegenerator.h                     *
+ *                                                                      *
+ * Do not edit manually ! Edit header and run scripts/sipify.pl again   *
+ ************************************************************************/
+
+
+
+
+
+
+class QgsProfileRenderContext
+{
+%Docstring(signature="appended")
+Abstract base class for storage of elevation profiles.
+
+.. versionadded:: 3.26
+%End
+
+%TypeHeaderCode
+#include "qgsabstractprofilegenerator.h"
+%End
+  public:
+
+    QgsProfileRenderContext( QgsRenderContext &context );
+%Docstring
+Constructor for QgsProfileRenderContext, with the specified embedded render ``context``.
+%End
+
+    QgsRenderContext &renderContext();
+%Docstring
+Returns a reference to the component :py:class:`QgsRenderContext`.
+%End
+
+    const QTransform &worldTransform() const;
+%Docstring
+Returns the transform from world coordinates to painter coordinates.
+
+This transform maps points in (distance, elevation) to (x, y) in painter coordinates.
+
+.. seealso:: :py:func:`setWorldTransform`
+%End
+
+    void setWorldTransform( const QTransform &transform );
+%Docstring
+Sets the ``transform`` from world coordinates to painter coordinates.
+
+This transform maps points in (distance, elevation) to (x, y) in painter coordinates.
+
+.. seealso:: :py:func:`worldTransform`
+%End
+
+    QgsDoubleRange distanceRange() const;
+%Docstring
+Returns the range of distances to include in the render.
+
+Distances outside this range should be excluded from the render.
+
+.. seealso:: :py:func:`setDistanceRange`
+%End
+
+    void setDistanceRange( const QgsDoubleRange &range );
+%Docstring
+Sets the ``range`` of distances to include in the render.
+
+Distances outside this range will be excluded from the render.
+
+.. seealso:: :py:func:`distanceRange`
+%End
+
+    QgsDoubleRange elevationRange() const;
+%Docstring
+Returns the range of elevations to include in the render.
+
+Elevations outside this range should be excluded from the render.
+
+.. seealso:: :py:func:`setElevationRange`
+%End
+
+    void setElevationRange( const QgsDoubleRange &range );
+%Docstring
+Sets the ``range`` of elevations to include in the render.
+
+Elevations outside this range will be excluded from the render.
+
+.. seealso:: :py:func:`elevationRange`
+%End
+
+};
+
+
+class QgsAbstractProfileResults
+{
+%Docstring(signature="appended")
+Abstract base class for storage of elevation profiles.
+
+.. versionadded:: 3.26
+%End
+
+%TypeHeaderCode
+#include "qgsabstractprofilegenerator.h"
+%End
+  public:
+
+    virtual ~QgsAbstractProfileResults();
+
+    virtual QString type() const = 0;
+%Docstring
+Returns the unique string identifier for the results type.
+%End
+
+    virtual QMap< double, double > distanceToHeightMap() const = 0;
+%Docstring
+Returns the map of distance (chainage) to height.
+%End
+
+    virtual QgsPointSequence sampledPoints() const = 0;
+%Docstring
+Returns a list of sampled points, with their calculated elevation
+as the point z value.
+%End
+
+    virtual QVector< QgsGeometry > asGeometries() const = 0;
+%Docstring
+Returns a list of geometries representing the calculated elevation results.
+%End
+
+    virtual void renderResults( QgsProfileRenderContext &context ) = 0;
+%Docstring
+Renders the results to the specified ``context``.
+%End
+
+    virtual QgsDoubleRange zRange() const = 0;
+%Docstring
+Returns the range of the retrieved elevation values
+%End
+
+};
+
+class QgsAbstractProfileGenerator
+{
+%Docstring(signature="appended")
+Abstract base class for objects which generate elevation profiles.
+
+The generation is typically done in a background
+thread, so it is necessary to keep all structures required for generating the
+profile away from the original profile source because it may change at any time.
+
+Because the data needs to be copied (to avoid the need for locking),
+it is highly desirable to use copy-on-write where possible. This way,
+the overhead of copying (both memory and CPU) will be kept low.
+Qt containers and various Qt classes use implicit sharing.
+
+The scenario will be:
+
+# elevation profile job (doing preparation in the GUI thread) calls
+  :py:func:`QgsAbstractProfileSource.createProfileGenerator()` and gets an instance of this class.
+  The instance is initialized at that point and should not need
+  additional calls to the source.
+# profile job (still in GUI thread) stores the generator for later use.
+# profile job (in worker thread) calls :py:func:`QgsAbstractProfileGenerator.generateProfile()`
+# profile job (again in GUI thread) will check :py:func:`~QgsAbstractProfileResults.errors` and report them
+
+.. versionadded:: 3.26
+%End
+
+%TypeHeaderCode
+#include "qgsabstractprofilegenerator.h"
+%End
+  public:
+
+    virtual ~QgsAbstractProfileGenerator();
+
+    virtual bool generateProfile() = 0;
+%Docstring
+Generate the profile (based on data stored in the class).
+
+Returns ``True`` if the profile was generated successfully (i.e. the generation
+was not canceled early).
+%End
+
+    virtual QgsFeedback *feedback() const = 0;
+%Docstring
+Access to feedback object of the generator (may be ``None``)
+%End
+
+    virtual QgsAbstractProfileResults *takeResults() = 0 /TransferBack/;
+%Docstring
+Takes results from the generator.
+
+Ownership is transferred to the caller.
+%End
+
+};
+
+/************************************************************************
+ * This file has been generated automatically from                      *
+ *                                                                      *
+ * src/core/elevation/qgsabstractprofilegenerator.h                     *
+ *                                                                      *
+ * Do not edit manually ! Edit header and run scripts/sipify.pl again   *
+ ************************************************************************/

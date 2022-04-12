@@ -56,10 +56,22 @@ provider.
 
     ~QgsTransaction();
 
-    bool addLayer( QgsVectorLayer *layer );
+    QString connectionString() const;
 %Docstring
-Add the ``layer`` to the transaction. The layer must not be
-in edit mode and the connection string must match.
+Returns the connection string of the transaction
+
+.. versionadded:: 3.26
+%End
+
+    bool addLayer( QgsVectorLayer *layer, bool addLayersInEditMode = false );
+%Docstring
+Add the ``layer`` to the transaction. The connection string
+must match.
+
+:param layer: that will be added to the transaction
+:param addLayersInEditMode: if set layers that are already
+
+.. versionadded:: 3.26
 %End
 
     bool begin( QString &errorMsg /Out/, int statementTimeout = 20 );
@@ -110,7 +122,7 @@ returns the last created savepoint if it's not dirty
 .. versionadded:: 3.0
 %End
 
-    QString createSavepoint( const QString &savePointId, QString &error /Out/ );
+    virtual QString createSavepoint( const QString &savePointId, QString &error /Out/ );
 %Docstring
 creates a save point
 returns empty string on error
@@ -118,7 +130,7 @@ returns empty string on error
 .. versionadded:: 3.0
 %End
 
-    bool rollbackToSavepoint( const QString &name, QString &error /Out/ );
+    virtual bool rollbackToSavepoint( const QString &name, QString &error /Out/ );
 %Docstring
 rollback to save point, the save point is maintained and is "undertied"
 

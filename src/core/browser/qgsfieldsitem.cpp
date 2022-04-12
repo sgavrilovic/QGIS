@@ -34,7 +34,7 @@ QgsFieldsItem::QgsFieldsItem( QgsDataItem *parent,
   , mTableName( tableName )
   , mConnectionUri( connectionUri )
 {
-  mCapabilities |= ( Qgis::BrowserItemCapability::Fertile | Qgis::BrowserItemCapability::Collapse );
+  mCapabilities |= ( Qgis::BrowserItemCapability::Fertile | Qgis::BrowserItemCapability::Collapse | Qgis::BrowserItemCapability::RefreshChildrenWhenItemIsRefreshed );
   QgsProviderMetadata *md { QgsProviderRegistry::instance()->providerMetadata( providerKey ) };
   if ( md )
   {
@@ -160,7 +160,7 @@ QgsFieldItem::QgsFieldItem( QgsDataItem *parent, const QgsField &field )
   }
   if ( ! constraintsText.isEmpty() )
   {
-    setToolTip( QStringLiteral( "<ul><li>%1</li></ul>" ).arg( constraintsText.join( QStringLiteral( "</li><li>" ) ) ) );
+    setToolTip( QStringLiteral( "<ul><li>%1</li></ul>" ).arg( constraintsText.join( QLatin1String( "</li><li>" ) ) ) );
   }
 }
 
@@ -195,12 +195,26 @@ QIcon QgsFieldItem::icon()
         return QgsIconUtils::iconDefaultLayer();
     }
   }
-  const QIcon icon { QgsFields::iconForFieldType( mField.type() ) };
+  const QIcon icon { QgsFields::iconForFieldType( mField.type(), mField.subType() ) };
   // Try subtype if icon is null
   if ( icon.isNull() )
   {
     return QgsFields::iconForFieldType( mField.subType() );
   }
   return icon;
+}
+
+bool QgsFieldItem::equal( const QgsDataItem *other )
+{
+  if ( type() != other->type() )
+  {
+    return false;
+  }
+
+  const QgsFieldItem *o = qobject_cast<const QgsFieldItem *>( other );
+  if ( !o )
+    return false;
+
+  return ( mPath == o->mPath && mName == o->mName && mField == o->mField );
 }
 

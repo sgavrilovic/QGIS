@@ -209,8 +209,12 @@ void TestQgsValueRelationWidgetWrapper::testDrillDown()
   // Move the point to 1.5 0.5
   f3.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POINT( 1.5 0.5)" ) ) );
   w_municipality.setFeature( f3 );
-  QCOMPARE( w_municipality.mComboBox->count(), 1 );
+  // this shouldn't force change the existing value, but rather show it as a "invalid" value surrounded by (...)
+  QCOMPARE( w_municipality.value().toInt(), 1 );
+  QCOMPARE( w_municipality.mComboBox->count(), 2 );
   QCOMPARE( w_municipality.mComboBox->itemText( 0 ), QStringLiteral( "Dreamland By The Clouds" ) );
+  QCOMPARE( w_municipality.mComboBox->itemText( 1 ), QStringLiteral( "(1)" ) );
+  QCOMPARE( w_municipality.mComboBox->currentIndex(), 1 );
 
   // Enlarge the buffer
   cfg_municipality[ QStringLiteral( "FilterExpression" ) ] = QStringLiteral( "contains(buffer(@current_geometry, 3 ), $geometry)" );
@@ -219,6 +223,8 @@ void TestQgsValueRelationWidgetWrapper::testDrillDown()
   QCOMPARE( w_municipality.mComboBox->count(), 2 );
   QCOMPARE( w_municipality.mComboBox->itemText( 0 ), QStringLiteral( "Dreamland By The Clouds" ) );
   QCOMPARE( w_municipality.mComboBox->itemText( 1 ), QStringLiteral( "Some Place By The River" ) );
+  QCOMPARE( w_municipality.value().toInt(), 1 );
+  QCOMPARE( w_municipality.mComboBox->currentIndex(), 1 );
 
   // Check with allow null
   cfg_municipality[QStringLiteral( "AllowNull" )] = true;
@@ -1337,7 +1343,11 @@ void TestQgsValueRelationWidgetWrapper::testWithJsonInSpatialite()
 
   // FEATURE 4
   w_favoriteauthors.setFeature( vl_json->getFeature( 4 ) );
-  //check if first feature checked correctly (NULL)
+  // Because allowNull is false we have a NULL variant here
+  QCOMPARE( w_favoriteauthors.value(), QVariant( QVariant::Type::List ) );
+  cfg_favoriteauthors[ QStringLiteral( "AllowNull" ) ] = true;
+  w_favoriteauthors.setConfig( cfg_favoriteauthors );
+  //check if first feature checked correctly (empty list)
   QCOMPARE( w_favoriteauthors.value(), QVariant( QVariantList() ) );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 0, 0 )->checkState(), Qt::Unchecked );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 1, 0 )->checkState(), Qt::Unchecked );
@@ -1346,10 +1356,17 @@ void TestQgsValueRelationWidgetWrapper::testWithJsonInSpatialite()
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 4, 0 )->checkState(), Qt::Unchecked );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 5, 0 )->checkState(), Qt::Unchecked );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 6, 0 )->checkState(), Qt::Unchecked );
+  cfg_favoriteauthors[ QStringLiteral( "AllowNull" ) ] = false;
+  w_favoriteauthors.setConfig( cfg_favoriteauthors );
 
   // FEATURE 5
   w_favoriteauthors.setFeature( vl_json->getFeature( 5 ) );
-  //check if first feature checked correctly (blank)
+  // Because allowNull is false we have a NULL variant here
+  QCOMPARE( w_favoriteauthors.value(), QVariant( QVariant::Type::List ) );
+
+  cfg_favoriteauthors[ QStringLiteral( "AllowNull" ) ] = true;
+  w_favoriteauthors.setConfig( cfg_favoriteauthors );
+  //check if first feature checked correctly (empty list)
   QCOMPARE( w_favoriteauthors.value(), QVariant( QVariantList( ) ) );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 0, 0 )->checkState(), Qt::Unchecked );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 1, 0 )->checkState(), Qt::Unchecked );
@@ -1495,6 +1512,11 @@ void TestQgsValueRelationWidgetWrapper::testWithJsonInSpatialiteTextFk()
   // FEATURE 4
   w_favoriteauthors.setFeature( vl_json->getFeature( 4 ) );
 
+  // Because allowNull is false we have a NULL variant here
+  QCOMPARE( w_favoriteauthors.value(), QVariant( QVariant::Type::List ) );
+  cfg_favoriteauthors[ QStringLiteral( "AllowNull" ) ] = true;
+  w_favoriteauthors.setConfig( cfg_favoriteauthors );
+
   //check if first feature checked correctly (NULL)
   QCOMPARE( w_favoriteauthors.value(), QVariant( QVariantList( ) ) );
 
@@ -1505,11 +1527,18 @@ void TestQgsValueRelationWidgetWrapper::testWithJsonInSpatialiteTextFk()
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 4, 0 )->checkState(), Qt::Unchecked );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 5, 0 )->checkState(), Qt::Unchecked );
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 6, 0 )->checkState(), Qt::Unchecked );
+  cfg_favoriteauthors[ QStringLiteral( "AllowNull" ) ] = false;
+  w_favoriteauthors.setConfig( cfg_favoriteauthors );
 
   // FEATURE 5
   w_favoriteauthors.setFeature( vl_json->getFeature( 5 ) );
 
-  //check if first feature checked correctly (blank)
+  // Because allowNull is false we have a NULL variant here
+  QCOMPARE( w_favoriteauthors.value(), QVariant( QVariant::Type::List ) );
+  cfg_favoriteauthors[ QStringLiteral( "AllowNull" ) ] = true;
+  w_favoriteauthors.setConfig( cfg_favoriteauthors );
+
+  //check if first feature checked correctly (empty list)
   QCOMPARE( w_favoriteauthors.value(), QVariant( QVariantList() ) );
 
   QCOMPARE( w_favoriteauthors.mTableWidget->item( 0, 0 )->checkState(), Qt::Unchecked );
@@ -1620,18 +1649,21 @@ void TestQgsValueRelationWidgetWrapper::testRegressionGH42003()
   w_municipality.setEnabled( true );
 
   w_municipality.setFeature( QgsFeature( vl2.fields() ) );
-  QCoreApplication::processEvents();
+  while ( w_municipality.mComboBox->currentIndex() != 0 )
+    QCoreApplication::processEvents();
 
   // Check first is selected (fid 2 because of OrderByValue)
   QCOMPARE( w_municipality.mComboBox->currentIndex(), 0 );
   QCOMPARE( w_municipality.mComboBox->count(), 2 );
   QCOMPARE( w_municipality.mComboBox->itemText( 0 ), QStringLiteral( "Dreamland By The Clouds" ) );
-  QCOMPARE( w_municipality.value().toString(), QStringLiteral( "2" ) );
+  QCOMPARE( w_municipality.mComboBox->itemText( 1 ), QStringLiteral( "Some Place By The River" ) );
+  QCOMPARE( w_municipality.value().toInt(), 2 );
 
   // Simulate what happens in the attribute form initialization
   w_municipality.setFeature( QgsFeature( vl2.fields() ) );
   w_municipality.setFeature( vl2.getFeature( 1 ) );
-  QCoreApplication::processEvents();
+  while ( w_municipality.mComboBox->currentIndex() != 1 )
+    QCoreApplication::processEvents();
 
   // Check fid 1 is selected
   QCOMPARE( w_municipality.mComboBox->currentIndex(), 1 );

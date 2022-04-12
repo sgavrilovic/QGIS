@@ -137,6 +137,7 @@ QgsLayoutMapWidget::QgsLayoutMapWidget( QgsLayoutItemMap *item, QgsMapCanvas *ma
 
   mCrsSelector->setOptionVisible( QgsProjectionSelectionWidget::CrsNotSet, true );
   mCrsSelector->setNotSetText( tr( "Use Project CRS" ) );
+  mCrsSelector->setDialogTitle( tr( "Map Item CRS" ) );
 
   mOverviewFrameStyleButton->setSymbolType( Qgis::SymbolType::Fill );
 
@@ -398,7 +399,8 @@ void QgsLayoutMapWidget::mapCrsChanged( const QgsCoordinateReferenceSystem &crs 
   QgsRectangle newExtent;
   try
   {
-    const QgsCoordinateTransform xForm( oldCrs, crs.isValid() ? crs : QgsProject::instance()->crs(), QgsProject::instance() );
+    QgsCoordinateTransform xForm( oldCrs, crs.isValid() ? crs : QgsProject::instance()->crs(), QgsProject::instance() );
+    xForm.setBallparkTransformsAreAppropriate( true );
     const QgsRectangle prevExtent = mMapItem->extent();
     newExtent = xForm.transformBoundingBox( prevExtent );
     updateExtent = true;
@@ -491,7 +493,8 @@ void QgsLayoutMapWidget::aboutToShowBookmarkMenu()
       {
         try
         {
-          const QgsCoordinateTransform xForm( extent.crs(), mMapItem->crs(), QgsProject::instance() );
+          QgsCoordinateTransform xForm( extent.crs(), mMapItem->crs(), QgsProject::instance() );
+          xForm.setBallparkTransformsAreAppropriate( true );
           newExtent = xForm.transformBoundingBox( newExtent );
         }
         catch ( QgsCsException & )
@@ -732,8 +735,9 @@ void QgsLayoutMapWidget::setToMapCanvasExtent()
   {
     try
     {
-      const QgsCoordinateTransform xForm( mMapCanvas->mapSettings().destinationCrs(),
-                                          mMapItem->crs(), QgsProject::instance() );
+      QgsCoordinateTransform xForm( mMapCanvas->mapSettings().destinationCrs(),
+                                    mMapItem->crs(), QgsProject::instance() );
+      xForm.setBallparkTransformsAreAppropriate( true );
       newExtent = xForm.transformBoundingBox( newExtent );
     }
     catch ( QgsCsException & )
@@ -947,15 +951,14 @@ void QgsLayoutMapWidget::toggleAtlasScalingOptionsByLayerType()
   if ( QgsWkbTypes::geometryType( layer->wkbType() ) == QgsWkbTypes::PointGeometry )
   {
     //For point layers buffer setting makes no sense, so set "fixed scale" on and disable margin control
-    mAtlasFixedScaleRadio->setChecked( true );
+    if ( mMapItem->atlasScalingMode() == QgsLayoutItemMap::Auto )
+      mAtlasFixedScaleRadio->setChecked( true );
     mAtlasMarginRadio->setEnabled( false );
-    mAtlasPredefinedScaleRadio->setEnabled( false );
   }
   else
   {
     //Not a point layer, so enable changes to fixed scale control
     mAtlasMarginRadio->setEnabled( true );
-    mAtlasPredefinedScaleRadio->setEnabled( true );
   }
 }
 

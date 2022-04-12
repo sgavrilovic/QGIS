@@ -24,6 +24,7 @@
 #include "qgsattributes.h"
 #include "qgscategorizedsymbolrenderer.h"
 #include "qgscolorramp.h"
+#include "qgscolorrampimpl.h"
 #include "qgsdatadefinedsizelegend.h"
 #include "qgsexpression.h"
 #include "qgsfeature.h"
@@ -799,6 +800,25 @@ QSet< QString > QgsGraduatedSymbolRenderer::legendKeysForFeature( const QgsFeatu
     return QSet< QString >() << key;
   else
     return QSet< QString >();
+}
+
+QString QgsGraduatedSymbolRenderer::legendKeyToExpression( const QString &key, QgsVectorLayer *layer, bool &ok ) const
+{
+  ok = false;
+  int ruleIndex = key.toInt( &ok );
+  if ( !ok || ruleIndex < 0 || ruleIndex >= mRanges.size() )
+  {
+    ok = false;
+    return QString();
+  }
+
+  const QString attributeComponent = QgsExpression::quoteFieldExpression( mAttrName, layer );
+
+  ok = true;
+  const QgsRendererRange &range = mRanges[ ruleIndex ];
+
+  return QStringLiteral( "(%1 >= %2) AND (%1 <= %3)" ).arg( attributeComponent, QgsExpression::quotedValue( range.lowerValue(), QVariant::Double ),
+         QgsExpression::quotedValue( range.upperValue(), QVariant::Double ) );
 }
 
 QgsSymbol *QgsGraduatedSymbolRenderer::sourceSymbol()

@@ -17,6 +17,7 @@
 
 #include "qgsmeshtracerenderer.h"
 #include "qgsmeshlayerrenderer.h"
+#include "qgsrendercontext.h"
 
 #include <QPointer>
 
@@ -272,7 +273,9 @@ void QgsMeshStreamField::updateSize( const QgsRenderContext &renderContext )
   QgsRectangle layerExtent;
   try
   {
-    layerExtent = renderContext.coordinateTransform().transform( mLayerExtent );
+    QgsCoordinateTransform extentTransform = renderContext.coordinateTransform();
+    extentTransform.setBallparkTransformsAreAppropriate( true );
+    layerExtent = extentTransform.transformBoundingBox( mLayerExtent );
   }
   catch ( QgsCsException &cse )
   {

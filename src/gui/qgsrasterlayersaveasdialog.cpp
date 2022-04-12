@@ -51,7 +51,7 @@ QgsRasterLayerSaveAsDialog::QgsRasterLayerSaveAsDialog( QgsRasterLayer *rasterLa
   , mResolutionState( OriginalResolution )
 {
   setupUi( this );
-  QgsGui::instance()->enableAutoGeometryRestore( this );
+  QgsGui::enableAutoGeometryRestore( this );
   connect( mRawModeRadioButton, &QRadioButton::toggled, this, &QgsRasterLayerSaveAsDialog::mRawModeRadioButton_toggled );
   connect( mFormatComboBox, &QComboBox::currentTextChanged, this, &QgsRasterLayerSaveAsDialog::mFormatComboBox_currentIndexChanged );
   connect( mResolutionRadioButton, &QRadioButton::toggled, this, &QgsRasterLayerSaveAsDialog::mResolutionRadioButton_toggled );
@@ -417,7 +417,7 @@ QString QgsRasterLayerSaveAsDialog::outputFileName() const
 
     // ensure the user never omits the extension from the file name
     QFileInfo fi( fileName );
-    if ( !fileName.isEmpty() && fi.suffix().isEmpty() )
+    if ( !fileName.isEmpty() && fi.suffix().isEmpty() && !defaultExt.isEmpty() )
     {
       fileName += '.' + defaultExt;
     }
@@ -542,7 +542,7 @@ void QgsRasterLayerSaveAsDialog::setResolution( double xRes, double yRes, const 
 
     QgsPointXY center = outputRectangle().center();
     QgsCoordinateTransform ct( srcCrs, outputCrs(), QgsProject::instance() );
-    QgsPointXY srsCenter = ct.transform( center, QgsCoordinateTransform::ReverseTransform );
+    QgsPointXY srsCenter = ct.transform( center, Qgis::TransformDirection::Reverse );
 
     QgsRectangle srcExtent( srsCenter.x() - xRes / 2, srsCenter.y() - yRes / 2, srsCenter.x() + xRes / 2, srsCenter.y() + yRes / 2 );
 

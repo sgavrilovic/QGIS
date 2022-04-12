@@ -1,0 +1,165 @@
+/************************************************************************
+ * This file has been generated automatically from                      *
+ *                                                                      *
+ * src/gui/elevation/qgselevationprofilecanvas.h                        *
+ *                                                                      *
+ * Do not edit manually ! Edit header and run scripts/sipify.pl again   *
+ ************************************************************************/
+
+
+
+
+
+class QgsElevationProfileCanvas : QgsPlotCanvas
+{
+%Docstring(signature="appended")
+A canvas for elevation profiles.
+
+.. versionadded:: 3.26
+%End
+
+%TypeHeaderCode
+#include "qgselevationprofilecanvas.h"
+%End
+  public:
+
+    QgsElevationProfileCanvas( QWidget *parent /TransferThis/ = 0 );
+%Docstring
+Constructor for QgsElevationProfileCanvas, with the specified ``parent`` widget.
+%End
+
+    ~QgsElevationProfileCanvas();
+    virtual QgsCoordinateReferenceSystem crs() const;
+
+    virtual QgsPoint toMapCoordinates( const QgsPointXY &point ) const;
+
+    virtual QgsPointXY toCanvasCoordinates( const QgsPoint &point ) const;
+
+    virtual void resizeEvent( QResizeEvent *event );
+
+    virtual void paintEvent( QPaintEvent *event );
+
+    virtual void panContentsBy( double dx, double dy );
+
+    virtual void centerPlotOn( double x, double y );
+
+    virtual void scalePlot( double factor );
+
+
+    void scalePlot( double xFactor, double yFactor );
+%Docstring
+Scales the plot axis by the given factors.
+%End
+
+    virtual void zoomToRect( const QRectF rect );
+
+    virtual void wheelZoom( QWheelEvent *event );
+
+    virtual void mouseMoveEvent( QMouseEvent *e );
+
+
+    QRectF plotArea() const;
+%Docstring
+Returns the interior rectangle representing the surface of the plot, in canvas coordinates.
+%End
+
+    virtual void refresh();
+
+%Docstring
+Triggers an update of the profile, causing the profile extraction to perform in the
+background.
+%End
+
+    void setProject( QgsProject *project );
+%Docstring
+Sets the ``project`` associated with the profile.
+
+This must be set before any layers which utilize terrain based elevation settings can be
+included in the canvas.
+%End
+
+    void setLayers( const QList< QgsMapLayer * > &layers );
+%Docstring
+Sets the list of ``layers`` to include in the profile.
+
+.. seealso:: :py:func:`layers`
+%End
+
+    QList< QgsMapLayer * > layers() const;
+%Docstring
+Returns the list of layers included in the profile.
+
+.. seealso:: :py:func:`setLayers`
+%End
+
+    void setCrs( const QgsCoordinateReferenceSystem &crs );
+%Docstring
+Sets the ``crs`` associated with the canvas' map coordinates.
+
+.. seealso:: :py:func:`crs`
+%End
+
+    void setProfileCurve( QgsCurve *curve /Transfer/ );
+%Docstring
+Sets the profile ``curve``.
+
+The CRS associated with ``curve`` is set via :py:func:`~QgsElevationProfileCanvas.setCrs`.
+
+Ownership is transferred to the plot canvas.
+
+.. seealso:: :py:func:`profileCurve`
+%End
+
+    QgsCurve *profileCurve() const;
+%Docstring
+Returns the profile curve.
+
+The CRS associated with the curve is retrieved via :py:func:`~QgsElevationProfileCanvas.crs`.
+
+.. seealso:: :py:func:`setProfileCurve`
+%End
+
+    void setVisiblePlotRange( double minimumDistance, double maximumDistance, double minimumElevation, double maximumElevation );
+%Docstring
+Sets the visible area of the plot.
+%End
+
+
+    void render( QgsRenderContext &context, double width, double height, const Qgs2DPlot &plotSettings );
+%Docstring
+Renders a portion of the profile using the specified render ``context``.
+%End
+
+  signals:
+
+    void activeJobCountChanged( int count );
+%Docstring
+Emitted when the number of active background jobs changes.
+%End
+
+    void canvasPointHovered( const QgsPointXY &point );
+%Docstring
+Emitted when the mouse hovers over the specified point (in canvas coordinates).
+%End
+
+  public slots:
+
+    void zoomFull();
+%Docstring
+Zooms to the full extent of the profile.
+%End
+
+    void clear();
+%Docstring
+Clears the current profile.
+%End
+
+};
+
+/************************************************************************
+ * This file has been generated automatically from                      *
+ *                                                                      *
+ * src/gui/elevation/qgselevationprofilecanvas.h                        *
+ *                                                                      *
+ * Do not edit manually ! Edit header and run scripts/sipify.pl again   *
+ ************************************************************************/

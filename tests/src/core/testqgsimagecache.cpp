@@ -55,7 +55,11 @@ class TestQgsImageCache : public QObject
     void opacity(); // check non-opaque image rendering
     void base64();
     void empty();
-
+    void dpi();
+    void cachesize();
+    void frameCount();
+    void nextFrameDelay();
+    void imageFrames();
 };
 
 
@@ -144,12 +148,12 @@ void TestQgsImageCache::broken()
   QgsImageCache cache;
   bool inCache = false;
   bool missingImage = false;
-  const QImage img = cache.pathAsImage( QStringLiteral( "bbbbbbb" ), QSize( 200, 200 ), true, 1.0, inCache, false, &missingImage );
+  const QImage img = cache.pathAsImage( QStringLiteral( "bbbbbbb" ), QSize( 200, 200 ), true, 1.0, inCache, false, 96,  -1, &missingImage );
   QVERIFY( missingImage );
-  cache.pathAsImage( QStringLiteral( "bbbbbbb" ), QSize( 200, 200 ), true, 1.0, inCache, false, &missingImage );
+  cache.pathAsImage( QStringLiteral( "bbbbbbb" ), QSize( 200, 200 ), true, 1.0, inCache, false, 96,  -1, &missingImage );
   QVERIFY( missingImage );
   const QString originalImage = TEST_DATA_DIR + QStringLiteral( "/sample_image.png" );
-  cache.pathAsImage( originalImage, QSize( 200, 200 ), true, 1.0, inCache, false, &missingImage );
+  cache.pathAsImage( originalImage, QSize( 200, 200 ), true, 1.0, inCache, false, 96,   -1, &missingImage );
   QVERIFY( !missingImage );
 }
 
@@ -301,6 +305,109 @@ void TestQgsImageCache::empty()
   QVERIFY( img.isNull() );
 
   QVERIFY( !cache.originalSize( QStringLiteral( " " ) ).isValid() );
+}
+
+void TestQgsImageCache::dpi()
+{
+  QgsImageCacheEntry entry1( QStringLiteral( "my path" ), QSize(), true, 1, 96, -1 );
+  QgsImageCacheEntry entry2( QStringLiteral( "my path" ), QSize(), true, 1, 300, -1 );
+  QVERIFY( !entry1.isEqual( &entry2 ) );
+  entry2.targetDpi = 96;
+  QVERIFY( entry1.isEqual( &entry2 ) );
+  entry2.targetDpi = 300;
+  // target dpi is ignored if a valid size is set
+  entry1.size = QSize( 100, 100 );
+  entry2.size = QSize( 100, 100 );
+  QVERIFY( entry1.isEqual( &entry2 ) );
+}
+
+void TestQgsImageCache::cachesize()
+{
+  uint cacheSize = 100000000;
+  QgsSettings().setValue( QStringLiteral( "/qgis/maxImageCacheSize" ), cacheSize );
+  QgsImageCache cache;
+  QCOMPARE( cache.mMaxCacheSize, cacheSize );
+}
+
+void TestQgsImageCache::frameCount()
+{
+  QgsImageCache cache;
+
+  // not an animated image
+  const QString notAnimatedImage = TEST_DATA_DIR + QStringLiteral( "/sample_image.png" );
+
+  QCOMPARE( cache.totalFrameCount( notAnimatedImage ), 1 );
+  // call twice to test caching
+  QCOMPARE( cache.totalFrameCount( notAnimatedImage ), 1 );
+
+  const QString animatedImage = TEST_DATA_DIR + QStringLiteral( "/qgis_logo_animated.gif" );
+
+  QCOMPARE( cache.totalFrameCount( animatedImage ), 4 );
+  // call twice to test caching
+  QCOMPARE( cache.totalFrameCount( animatedImage ), 4 );
+}
+
+void TestQgsImageCache::nextFrameDelay()
+{
+  QgsImageCache cache;
+
+  // not an animated image
+  const QString notAnimatedImage = TEST_DATA_DIR + QStringLiteral( "/sample_image.png" );
+
+  QCOMPARE( cache.nextFrameDelay( notAnimatedImage ), -1 );
+  // call twice to test caching
+  QCOMPARE( cache.nextFrameDelay( notAnimatedImage ), -1 );
+
+  const QString animatedImage = TEST_DATA_DIR + QStringLiteral( "/qgis_logo_animated.gif" );
+
+  QCOMPARE( cache.nextFrameDelay( animatedImage ), 100 );
+  // call twice to test caching
+  QCOMPARE( cache.nextFrameDelay( animatedImage ), 100 );
+
+  // different frame
+  QCOMPARE( cache.nextFrameDelay( animatedImage, 1 ), 100 );
+  QCOMPARE( cache.nextFrameDelay( animatedImage, 1 ), 100 );
+
+  QCOMPARE( cache.nextFrameDelay( animatedImage, 5 ), -1 );
+  QCOMPARE( cache.nextFrameDelay( animatedImage, 5 ), -1 );
+
+}
+
+void TestQgsImageCache::imageFrames()
+{
+  QgsImageCache cache;
+  QImage img;
+  bool inCache;
+  const QString originalImage = TEST_DATA_DIR + QStringLiteral( "/qgis_logo_animated.gif" );
+
+  // call twice to test caching
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 0 );
+  QVERIFY( !img.isNull() );
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 0 );
+  QVERIFY( !img.isNull() );
+  QVERIFY( imageCheck( QStringLiteral( "imagecache_animation_0" ), img, 0 ) );
+
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 1 );
+  QVERIFY( !img.isNull() );
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 1 );
+  QVERIFY( !img.isNull() );
+  QVERIFY( imageCheck( QStringLiteral( "imagecache_animation_1" ), img, 0 ) );
+
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 2 );
+  QVERIFY( !img.isNull() );
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 2 );
+  QVERIFY( !img.isNull() );
+  QVERIFY( imageCheck( QStringLiteral( "imagecache_animation_2" ), img, 0 ) );
+
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 3 );
+  QVERIFY( !img.isNull() );
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 3 );
+  QVERIFY( !img.isNull() );
+  QVERIFY( imageCheck( QStringLiteral( "imagecache_animation_3" ), img, 0 ) );
+
+  // invalid frame
+  img = cache.pathAsImage( originalImage, QSize(), true, 1.0, inCache, false, 96, 4 );
+  QVERIFY( img.isNull() );
 }
 
 bool TestQgsImageCache::imageCheck( const QString &testName, QImage &image, int mismatchCount )

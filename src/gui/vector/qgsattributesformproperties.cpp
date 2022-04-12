@@ -13,6 +13,7 @@
  *                                                                         *
  ***************************************************************************/
 
+#include "qgsactionmanager.h"
 #include "qgsaddtaborgroup.h"
 #include "qgsattributesformproperties.h"
 #include "qgsattributetypedialog.h"
@@ -26,6 +27,7 @@
 #include "qgscolorbutton.h"
 #include "qgscodeeditorhtml.h"
 #include "qgsexpressioncontextutils.h"
+#include "qgsattributeeditoraction.h"
 #include "qgsattributeeditorfield.h"
 #include "qgsattributeeditorcontainer.h"
 #include "qgsattributeeditorqmlelement.h"
@@ -136,6 +138,25 @@ void QgsAttributesFormProperties::initAvailableWidgetsTree()
   }
   catitem->setExpanded( true );
 
+  // Form actions
+  catItemData = DnDTreeItemData( DnDTreeItemData::WidgetType, QStringLiteral( "Actions" ), tr( "Actions" ) );
+  catitem = mAvailableWidgetsTree->addItem( mAvailableWidgetsTree->invisibleRootItem(), catItemData );
+
+  const QList<QgsAction> actions { mLayer->actions()->actions( ) };
+
+  for ( const auto &action : std::as_const( actions ) )
+  {
+    if ( action.isValid() && action.runable() &&
+         ( action.actionScopes().contains( QStringLiteral( "Feature" ) ) ||
+           action.actionScopes().contains( QStringLiteral( "Layer" ) ) ) )
+    {
+      const QString actionTitle { action.shortTitle().isEmpty() ? action.name() : action.shortTitle() };
+      DnDTreeItemData itemData = DnDTreeItemData( DnDTreeItemData::Action, action.id().toString(), actionTitle );
+      itemData.setShowLabel( true );
+      mAvailableWidgetsTree->addItem( catitem, itemData );
+    }
+  }
+
   // QML/HTML widget
   catItemData = DnDTreeItemData( DnDTreeItemData::WidgetType, QStringLiteral( "Other" ), tr( "Other Widgets" ) );
   catitem = mAvailableWidgetsTree->addItem( mAvailableWidgetsTree->invisibleRootItem(), catItemData );
@@ -224,8 +245,8 @@ void QgsAttributesFormProperties::initInitPython()
                           "\"\"\"\n"
                           "from qgis.PyQt.QtWidgets import QWidget\n\n"
                           "def my_form_open(dialog, layer, feature):\n"
-                          "\tgeom = feature.geometry()\n"
-                          "\tcontrol = dialog.findChild(QWidget, \"MyLineEdit\")\n" ) );
+                          "    geom = feature.geometry()\n"
+                          "    control = dialog.findChild(QWidget, \"MyLineEdit\")\n" ) );
   }
 }
 
@@ -410,6 +431,23 @@ QTreeWidgetItem *QgsAttributesFormProperties::loadAttributeEditorTreeItem( QgsAt
       break;
     }
 
+    case QgsAttributeEditorElement::AeTypeAction:
+    {
+      const QgsAttributeEditorAction *actionEditor = static_cast<const QgsAttributeEditorAction *>( widgetDef );
+      const QgsAction action { actionEditor->action( mLayer ) };
+      if ( action.isValid() )
+      {
+        DnDTreeItemData itemData = DnDTreeItemData( DnDTreeItemData::Action, action.id().toString(), action.shortTitle().isEmpty() ? action.name() : action.shortTitle() );
+        itemData.setShowLabel( widgetDef->showLabel() );
+        newWidget = tree->addItem( parent, itemData );
+      }
+      else
+      {
+        QgsDebugMsg( QStringLiteral( "Invalid form action" ) );
+      }
+      break;
+    }
+
     case QgsAttributeEditorElement::AeTypeRelation:
     {
       const QgsAttributeEditorRelation *relationEditor = static_cast<const QgsAttributeEditorRelation *>( widgetDef );
@@ -441,6 +479,8 @@ QTreeWidgetItem *QgsAttributesFormProperties::loadAttributeEditorTreeItem( QgsAt
       itemData.setShowAsGroupBox( container->isGroupBox() );
       itemData.setBackgroundColor( container->backgroundColor() );
       itemData.setVisibilityExpression( container->visibilityExpression() );
+      itemData.setCollapsedExpression( container->collapsedExpression() );
+      itemData.setCollapsed( container->collapsed() );
       newWidget = tree->addItem( parent, itemData );
 
       const QList<QgsAttributeEditorElement *> children = container->children();
@@ -546,6 +586,13 @@ void QgsAttributesFormProperties::loadAttributeSpecificEditor( QgsAttributesDnDT
       {
         receiver->clearSelection();
         loadAttributeContainerEdit();
+        break;
+      }
+      case DnDTreeItemData::Action:
+      {
+        receiver->selectFirstMatchingItem( itemData );
+        const QgsAction action {mLayer->actions()->action( itemData.name() )};
+        loadInfoWidget( action.html() );
         break;
       }
       case DnDTreeItemData::QmlWidget:
@@ -662,6 +709,13 @@ QgsAttributeEditorElement *QgsAttributesFormProperties::createAttributeEditorWid
       break;
     }
 
+    case DnDTreeItemData::Action:
+    {
+      const QgsAction action { mLayer->actions()->action( itemData.name() )};
+      widgetDef = new QgsAttributeEditorAction( action, parent );
+      break;
+    }
+
     case DnDTreeItemData::Relation:
     {
       const QgsRelation relation = QgsProject::instance()->relationManager()->relation( itemData.name() );
@@ -681,6 +735,8 @@ QgsAttributeEditorElement *QgsAttributesFormProperties::createAttributeEditorWid
       QgsAttributeEditorContainer *container = new QgsAttributeEditorContainer( item->text( 0 ), parent, itemData.backgroundColor() );
       container->setColumnCount( itemData.columnCount() );
       container->setIsGroupBox( forceGroup ? true : itemData.showAsGroupBox() );
+      container->setCollapsed( itemData.collapsed() );
+      container->setCollapsedExpression( itemData.collapsedExpression() );
       container->setVisibilityExpression( itemData.visibilityExpression() );
       container->setBackgroundColor( itemData.backgroundColor( ) );
 
@@ -966,6 +1022,7 @@ QTreeWidgetItem *QgsAttributesDnDTree::addItem( QTreeWidgetItem *parent, QgsAttr
 
   switch ( data.type() )
   {
+    case QgsAttributesFormProperties::DnDTreeItemData::Action:
     case QgsAttributesFormProperties::DnDTreeItemData::Field:
     case QgsAttributesFormProperties::DnDTreeItemData::Relation:
     case QgsAttributesFormProperties::DnDTreeItemData::QmlWidget:
@@ -1145,6 +1202,7 @@ void QgsAttributesDnDTree::onItemDoubleClicked( QTreeWidgetItem *item, int colum
 
   switch ( itemData.type() )
   {
+    case QgsAttributesFormProperties::DnDTreeItemData::Action:
     case QgsAttributesFormProperties::DnDTreeItemData::Container:
     case QgsAttributesFormProperties::DnDTreeItemData::WidgetType:
     case QgsAttributesFormProperties::DnDTreeItemData::Relation:
@@ -1286,7 +1344,7 @@ void QgsAttributesDnDTree::onItemDoubleClicked( QTreeWidgetItem *item, int colum
       expressionWidgetBox->layout()->addWidget( addExpressionButton );
       qmlCodeBox->layout()->addWidget( qmlCode );
       layout->addWidget( qmlCodeBox );
-      QScrollArea *qmlPreviewBox = new QScrollArea();
+      QScrollArea *qmlPreviewBox = new QgsScrollArea();
       qmlPreviewBox->setLayout( new QGridLayout );
       qmlPreviewBox->setMinimumWidth( 400 );
       qmlPreviewBox->layout()->addWidget( qmlWrapper->widget() );
@@ -1367,7 +1425,7 @@ void QgsAttributesDnDTree::onItemDoubleClicked( QTreeWidgetItem *item, int colum
       expressionWidgetBox->layout()->addWidget( expressionWidget );
       expressionWidgetBox->layout()->addWidget( addExpressionButton );
       layout->addWidget( htmlCode );
-      QScrollArea *htmlPreviewBox = new QScrollArea();
+      QScrollArea *htmlPreviewBox = new QgsScrollArea();
       htmlPreviewBox->setLayout( new QGridLayout );
       htmlPreviewBox->setMinimumWidth( 400 );
       htmlPreviewBox->layout()->addWidget( htmlWrapper->widget() );
@@ -1486,6 +1544,16 @@ QgsOptionalExpression QgsAttributesFormProperties::DnDTreeItemData::visibilityEx
 void QgsAttributesFormProperties::DnDTreeItemData::setVisibilityExpression( const QgsOptionalExpression &visibilityExpression )
 {
   mVisibilityExpression = visibilityExpression;
+}
+
+QgsOptionalExpression QgsAttributesFormProperties::DnDTreeItemData::collapsedExpression() const
+{
+  return mCollapsedExpression;
+}
+
+void QgsAttributesFormProperties::DnDTreeItemData::setCollapsedExpression( const QgsOptionalExpression &collapsedExpression )
+{
+  mCollapsedExpression = collapsedExpression;
 }
 
 QgsAttributesFormProperties::RelationEditorConfiguration QgsAttributesFormProperties::DnDTreeItemData::relationEditorConfiguration() const

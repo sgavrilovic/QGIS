@@ -44,6 +44,7 @@ class TestQgisAppPython : public QObject
     void plugins();
     void pythonPlugin();
     void pluginMetadata();
+    void pythonPluginDependencyOrder();
     void runString();
     void evalString();
 
@@ -123,6 +124,25 @@ void TestQgisAppPython::pluginMetadata()
   QCOMPARE( mQgisApp->mPythonUtils->getPluginMetadata( QStringLiteral( "ProcessingPluginTest" ), QStringLiteral( "name" ) ), QStringLiteral( "processing plugin test" ) );
   QCOMPARE( mQgisApp->mPythonUtils->getPluginMetadata( QStringLiteral( "ProcessingPluginTest" ), QStringLiteral( "hasProcessingProvider" ) ), QStringLiteral( "yes" ) );
   QVERIFY( mQgisApp->mPythonUtils->pluginHasProcessingProvider( QStringLiteral( "ProcessingPluginTest" ) ) );
+  // hasProcessingProvider also accepts true/True
+  QCOMPARE( mQgisApp->mPythonUtils->getPluginMetadata( QStringLiteral( "ProcessingPluginTest2" ), QStringLiteral( "hasProcessingProvider" ) ), QStringLiteral( "True" ) );
+  QVERIFY( mQgisApp->mPythonUtils->pluginHasProcessingProvider( QStringLiteral( "ProcessingPluginTest2" ) ) );
+}
+
+void TestQgisAppPython::pythonPluginDependencyOrder()
+{
+  QVERIFY( mQgisApp->mPythonUtils->pluginList().contains( QStringLiteral( "PluginPathTest" ) ) );
+  QVERIFY( mQgisApp->mPythonUtils->pluginList().contains( QStringLiteral( "dependent_plugin_1" ) ) );
+  QVERIFY( mQgisApp->mPythonUtils->pluginList().contains( QStringLiteral( "dependent_plugin_2" ) ) );
+
+  const int indexIndependentPlugin = mQgisApp->mPythonUtils->pluginList().indexOf( QLatin1String( "PluginPathTest" ) );
+  const int indexDependentPlugin1 = mQgisApp->mPythonUtils->pluginList().indexOf( QLatin1String( "dependent_plugin_1" ) );
+  const int indexDependentPlugin2 = mQgisApp->mPythonUtils->pluginList().indexOf( QLatin1String( "dependent_plugin_2" ) );
+
+  // Dependent plugins should appear in this list after their dependencies,
+  // since that's the order in which they'll be loaded to QGIS
+  QVERIFY( indexIndependentPlugin < indexDependentPlugin1 );
+  QVERIFY( indexDependentPlugin1 < indexDependentPlugin2 );
 }
 
 void TestQgisAppPython::runString()

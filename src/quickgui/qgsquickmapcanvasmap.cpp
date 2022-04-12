@@ -24,6 +24,7 @@
 #include "qgsmessagelog.h"
 #include "qgspallabeling.h"
 #include "qgsproject.h"
+#include "qgsannotationlayer.h"
 #include "qgsvectorlayer.h"
 #include "qgslabelingresults.h"
 
@@ -37,7 +38,7 @@ QgsQuickMapCanvasMap::QgsQuickMapCanvasMap( QQuickItem *parent )
   , mCache( std::make_unique<QgsMapRendererCache>() )
 {
   connect( this, &QQuickItem::windowChanged, this, &QgsQuickMapCanvasMap::onWindowChanged );
-  connect( &mRefreshTimer, &QTimer::timeout, this, &QgsQuickMapCanvasMap::refreshMap );
+  connect( &mRefreshTimer, &QTimer::timeout, this, [ = ] { refreshMap(); } );
   connect( &mMapUpdateTimer, &QTimer::timeout, this, &QgsQuickMapCanvasMap::renderJobUpdated );
 
   connect( mMapSettings.get(), &QgsQuickMapSettings::extentChanged, this, &QgsQuickMapCanvasMap::onExtentChanged );
@@ -93,7 +94,7 @@ void QgsQuickMapCanvasMap::pan( QPointF oldPos, QPointF newPos )
   mMapSettings->setExtent( extent );
 }
 
-void QgsQuickMapCanvasMap::refreshMap()
+void QgsQuickMapCanvasMap::refreshMap( bool silent )
 {
   stopRendering(); // if any...
 
@@ -112,14 +113,19 @@ void QgsQuickMapCanvasMap::refreshMap()
     expressionContext << QgsExpressionContextUtils::projectScope( project );
 
     mapSettings.setLabelingEngineSettings( project->labelingEngineSettings() );
+
+    // render main annotation layer above all other layers
+    QList<QgsMapLayer *> allLayers = mapSettings.layers();
+    allLayers.insert( 0, project->mainAnnotationLayer() );
+    mapSettings.setLayers( allLayers );
   }
 
   mapSettings.setExpressionContext( expressionContext );
 
   // enables on-the-fly simplification of geometries to spend less time rendering
-  mapSettings.setFlag( QgsMapSettings::UseRenderingOptimization );
+  mapSettings.setFlag( Qgis::MapSettingsFlag::UseRenderingOptimization );
   // with incremental rendering - enables updates of partially rendered layers (good for WMTS, XYZ layers)
-  mapSettings.setFlag( QgsMapSettings::RenderPartialOutput, mIncrementalRendering );
+  mapSettings.setFlag( Qgis::MapSettingsFlag::RenderPartialOutput, mIncrementalRendering );
 
   // create the renderer job
   Q_ASSERT( !mJob );
@@ -134,7 +140,10 @@ void QgsQuickMapCanvasMap::refreshMap()
 
   mJob->start();
 
-  emit renderStarting();
+  if ( !silent )
+  {
+    emit renderStarting();
+  }
 }
 
 void QgsQuickMapCanvasMap::renderJobUpdated()
@@ -189,6 +198,30 @@ void QgsQuickMapCanvasMap::renderJobFinished()
 
   update();
   emit mapCanvasRefreshed();
+
+  if ( mDeferredRefreshPending )
+  {
+    mDeferredRefreshPending = false;
+    refreshMap( true );
+  }
+}
+
+void QgsQuickMapCanvasMap::layerRepaintRequested( bool deferred )
+{
+  if ( mMapSettings->outputSize().isNull() )
+    return; // the map image size has not been set yet
+
+  if ( !mFreeze )
+  {
+    if ( !deferred || !mJob )
+    {
+      refreshMap( deferred );
+    }
+    else
+    {
+      mDeferredRefreshPending = true;
+    }
+  }
 }
 
 void QgsQuickMapCanvasMap::onWindowChanged( QQuickWindow *window )
@@ -358,7 +391,7 @@ void QgsQuickMapCanvasMap::onLayersChanged()
   const QList<QgsMapLayer *> layers = mMapSettings->layers();
   for ( QgsMapLayer *layer : layers )
   {
-    mLayerConnections << connect( layer, &QgsMapLayer::repaintRequested, this, &QgsQuickMapCanvasMap::refresh );
+    mLayerConnections << connect( layer, &QgsMapLayer::repaintRequested, this, &QgsQuickMapCanvasMap::layerRepaintRequested );
   }
 
   refresh();
@@ -417,4 +450,10 @@ void QgsQuickMapCanvasMap::refresh()
 
   if ( !mFreeze )
     mRefreshTimer.start( 1 );
+}
+
+void QgsQuickMapCanvasMap::clearCache()
+{
+  if ( mCache )
+    mCache->clear();
 }

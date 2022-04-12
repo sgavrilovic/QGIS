@@ -17,7 +17,7 @@
 
 #include "qgsauxiliarystorage.h"
 #include "qgslogger.h"
-#include "qgsspatialiteutils.h"
+#include "qgssqliteutils.h"
 #include "qgsproject.h"
 #include "qgsvectorlayerlabeling.h"
 #include "qgsdiagramrenderer.h"
@@ -221,29 +221,44 @@ bool QgsAuxiliaryLayer::save()
   return rc;
 }
 
-int QgsAuxiliaryLayer::createProperty( QgsPalLayerSettings::Property property, QgsVectorLayer *layer )
+int QgsAuxiliaryLayer::createProperty( QgsPalLayerSettings::Property property, QgsVectorLayer *layer, bool overwriteExisting )
 {
   int index = -1;
 
   if ( layer && layer->labeling() && layer->auxiliaryLayer() )
   {
     // property definition are identical whatever the provider id
-    const QgsPropertyDefinition def = layer->labeling()->settings().propertyDefinitions()[property];
+    const QgsPropertyDefinition def = QgsPalLayerSettings::propertyDefinitions()[property];
     const QString fieldName = nameFromProperty( def, true );
 
     layer->auxiliaryLayer()->addAuxiliaryField( def );
 
     if ( layer->auxiliaryLayer()->indexOfPropertyDefinition( def ) >= 0 )
     {
-      const QgsProperty prop = QgsProperty::fromField( fieldName );
-
       const QStringList subProviderIds = layer->labeling()->subProviders();
       for ( const QString &providerId : subProviderIds )
       {
         QgsPalLayerSettings *settings = new QgsPalLayerSettings( layer->labeling()->settings( providerId ) );
 
         QgsPropertyCollection c = settings->dataDefinedProperties();
-        c.setProperty( property, prop );
+
+        // is there an existing property?
+        const QgsProperty existingProperty = c.property( property );
+        if ( existingProperty.propertyType() == QgsProperty::InvalidProperty
+             || ( existingProperty.propertyType() == QgsProperty::FieldBasedProperty && existingProperty.field().isEmpty() )
+             || ( existingProperty.propertyType() == QgsProperty::ExpressionBasedProperty && existingProperty.expressionString().isEmpty() )
+             || overwriteExisting )
+        {
+          const QgsProperty prop = QgsProperty::fromField( fieldName );
+          c.setProperty( property, prop );
+        }
+        else
+        {
+          // build a new smart expression as coalesce("new aux field", 'the' || 'old' || 'expression')
+          const QgsProperty prop = QgsProperty::fromExpression( QStringLiteral( "coalesce(%1,%2)" ).arg( QgsExpression::quotedColumnRef( fieldName ),
+                                   existingProperty.asExpression() ) );
+          c.setProperty( property, prop );
+        }
         settings->setDataDefinedProperties( c );
 
         layer->labeling()->setSettings( settings, providerId );
@@ -256,23 +271,35 @@ int QgsAuxiliaryLayer::createProperty( QgsPalLayerSettings::Property property, Q
   return index;
 }
 
-int QgsAuxiliaryLayer::createProperty( QgsDiagramLayerSettings::Property property, QgsVectorLayer *layer )
+int QgsAuxiliaryLayer::createProperty( QgsDiagramLayerSettings::Property property, QgsVectorLayer *layer, bool overwriteExisting )
 {
   int index = -1;
 
   if ( layer && layer->diagramLayerSettings() && layer->auxiliaryLayer() )
   {
-    const QgsPropertyDefinition def = layer->diagramLayerSettings()->propertyDefinitions()[property];
+    const QgsPropertyDefinition def = QgsDiagramLayerSettings::propertyDefinitions()[property];
 
     if ( layer->auxiliaryLayer()->addAuxiliaryField( def ) )
     {
       const QString fieldName = nameFromProperty( def, true );
-      const QgsProperty prop = QgsProperty::fromField( fieldName );
 
       QgsDiagramLayerSettings settings( *layer->diagramLayerSettings() );
 
       QgsPropertyCollection c = settings.dataDefinedProperties();
-      c.setProperty( property, prop );
+      // is there an existing property?
+      const QgsProperty existingProperty = c.property( property );
+      if ( existingProperty.propertyType() == QgsProperty::InvalidProperty || overwriteExisting )
+      {
+        const QgsProperty prop = QgsProperty::fromField( fieldName );
+        c.setProperty( property, prop );
+      }
+      else
+      {
+        // build a new smart expression as coalesce("new aux field", 'the' || 'old' || 'expression')
+        const QgsProperty prop = QgsProperty::fromExpression( QStringLiteral( "coalesce(%1,%2)" ).arg( QgsExpression::quotedColumnRef( fieldName ),
+                                 existingProperty.asExpression() ) );
+        c.setProperty( property, prop );
+      }
       settings.setDataDefinedProperties( c );
 
       layer->setDiagramLayerSettings( settings );
@@ -283,22 +310,20 @@ int QgsAuxiliaryLayer::createProperty( QgsDiagramLayerSettings::Property propert
   return index;
 }
 
-int QgsAuxiliaryLayer::createProperty( QgsCallout::Property property, QgsVectorLayer *layer )
+int QgsAuxiliaryLayer::createProperty( QgsCallout::Property property, QgsVectorLayer *layer, bool overwriteExisting )
 {
   int index = -1;
 
   if ( layer && layer->labeling() && layer->labeling()->settings().callout() && layer->auxiliaryLayer() )
   {
     // property definition are identical whatever the provider id
-    const QgsPropertyDefinition def = layer->labeling()->settings().callout()->propertyDefinitions()[property];
+    const QgsPropertyDefinition def = QgsCallout::propertyDefinitions()[property];
     const QString fieldName = nameFromProperty( def, true );
 
     layer->auxiliaryLayer()->addAuxiliaryField( def );
 
     if ( layer->auxiliaryLayer()->indexOfPropertyDefinition( def ) >= 0 )
     {
-      const QgsProperty prop = QgsProperty::fromField( fieldName );
-
       const QStringList subProviderIds = layer->labeling()->subProviders();
       for ( const QString &providerId : subProviderIds )
       {
@@ -306,7 +331,20 @@ int QgsAuxiliaryLayer::createProperty( QgsCallout::Property property, QgsVectorL
         if ( settings->callout() )
         {
           QgsPropertyCollection c = settings->callout()->dataDefinedProperties();
-          c.setProperty( property, prop );
+          // is there an existing property?
+          const QgsProperty existingProperty = c.property( property );
+          if ( existingProperty.propertyType() == QgsProperty::InvalidProperty || overwriteExisting )
+          {
+            const QgsProperty prop = QgsProperty::fromField( fieldName );
+            c.setProperty( property, prop );
+          }
+          else
+          {
+            // build a new smart expression as coalesce("new aux field", 'the' || 'old' || 'expression')
+            const QgsProperty prop = QgsProperty::fromExpression( QStringLiteral( "coalesce(%1,%2)" ).arg( QgsExpression::quotedColumnRef( fieldName ),
+                                     existingProperty.asExpression() ) );
+            c.setProperty( property, prop );
+          }
           settings->callout()->setDataDefinedProperties( c );
         }
         layer->labeling()->setSettings( settings, providerId );
@@ -618,7 +656,7 @@ QgsAuxiliaryLayer *QgsAuxiliaryStorage::createAuxiliaryLayer( const QgsField &fi
   if ( mValid && layer )
   {
     const QString table( layer->id() );
-    spatialite_database_unique_ptr database;
+    sqlite3_database_unique_ptr database;
     database = openDB( currentFileName() );
 
     if ( !tableExists( table, database.get() ) )
@@ -643,7 +681,7 @@ bool QgsAuxiliaryStorage::deleteTable( const QgsDataSourceUri &ogrUri )
 
   if ( !uri.database().isEmpty() && !uri.table().isEmpty() )
   {
-    spatialite_database_unique_ptr database;
+    sqlite3_database_unique_ptr database;
     database = openDB( uri.database() );
 
     if ( database )
@@ -666,7 +704,7 @@ bool QgsAuxiliaryStorage::duplicateTable( const QgsDataSourceUri &ogrUri, const 
 
   if ( !uri.table().isEmpty() && !uri.database().isEmpty() )
   {
-    spatialite_database_unique_ptr database;
+    sqlite3_database_unique_ptr database;
     database = openDB( uri.database() );
 
     if ( database )
@@ -760,9 +798,9 @@ bool QgsAuxiliaryStorage::createTable( const QString &type, const QString &table
   return true;
 }
 
-spatialite_database_unique_ptr QgsAuxiliaryStorage::createDB( const QString &filename )
+sqlite3_database_unique_ptr QgsAuxiliaryStorage::createDB( const QString &filename )
 {
-  spatialite_database_unique_ptr database;
+  sqlite3_database_unique_ptr database;
 
   int rc;
   rc = database.open_v2( filename, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr );
@@ -777,9 +815,9 @@ spatialite_database_unique_ptr QgsAuxiliaryStorage::createDB( const QString &fil
   return database;
 }
 
-spatialite_database_unique_ptr QgsAuxiliaryStorage::openDB( const QString &filename )
+sqlite3_database_unique_ptr QgsAuxiliaryStorage::openDB( const QString &filename )
 {
-  spatialite_database_unique_ptr database;
+  sqlite3_database_unique_ptr database;
   const int rc = database.open_v2( filename, SQLITE_OPEN_READWRITE, nullptr );
 
   if ( rc )
@@ -810,9 +848,9 @@ bool QgsAuxiliaryStorage::tableExists( const QString &table, sqlite3 *handler )
   return false;
 }
 
-spatialite_database_unique_ptr QgsAuxiliaryStorage::open( const QString &filename )
+sqlite3_database_unique_ptr QgsAuxiliaryStorage::open( const QString &filename )
 {
-  spatialite_database_unique_ptr database;
+  sqlite3_database_unique_ptr database;
 
   if ( filename.isEmpty() )
   {
@@ -836,7 +874,7 @@ spatialite_database_unique_ptr QgsAuxiliaryStorage::open( const QString &filenam
   return database;
 }
 
-spatialite_database_unique_ptr QgsAuxiliaryStorage::open( const QgsProject &project )
+sqlite3_database_unique_ptr QgsAuxiliaryStorage::open( const QgsProject &project )
 {
   return open( filenameForProject( project ) );
 }

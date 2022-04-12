@@ -67,13 +67,15 @@ QgsRectangle QgsServerApiUtils::parseBbox( const QString &bbox )
   return QgsRectangle();
 }
 
-QList< QgsVectorLayerServerProperties::WmsDimensionInfo > QgsServerApiUtils::temporalDimensions( const QgsVectorLayer *layer )
+QList< QgsMapLayerServerProperties::WmsDimensionInfo > QgsServerApiUtils::temporalDimensions( const QgsVectorLayer *layer )
 {
-  QList< QgsVectorLayerServerProperties::WmsDimensionInfo > dimensions { layer->serverProperties()->wmsDimensions() };
+
+  const QgsMapLayerServerProperties *serverProperties = layer->serverProperties();
+  QList< QgsMapLayerServerProperties::WmsDimensionInfo > dimensions { serverProperties->wmsDimensions() };
   // Filter only date and time
   dimensions.erase( std::remove_if( dimensions.begin(),
                                     dimensions.end(),
-                                    [ ]( QgsVectorLayerServerProperties::WmsDimensionInfo & dim )
+                                    [ ]( QgsMapLayerServerProperties::WmsDimensionInfo & dim )
   {
     return dim.name.toLower() != QStringLiteral( "time" )
            && dim.name.toLower() != QStringLiteral( "date" ) ;
@@ -87,7 +89,7 @@ QList< QgsVectorLayerServerProperties::WmsDimensionInfo > QgsServerApiUtils::tem
     {
       if ( f.isDateOrTime() )
       {
-        dimensions.append( QgsVectorLayerServerProperties::WmsDimensionInfo( f.type() == QVariant::DateTime ?
+        dimensions.append( QgsMapLayerServerProperties::WmsDimensionInfo( f.type() == QVariant::DateTime ?
                            QStringLiteral( "time" ) :
                            QStringLiteral( "date" ), f.name() ) );
         break;
@@ -455,7 +457,7 @@ json QgsServerApiUtils::layerExtent( const QgsVectorLayer *layer )
 json QgsServerApiUtils::temporalExtent( const QgsVectorLayer *layer )
 {
   // Helper to get min/max from a dimension
-  auto range = [ & ]( const QgsVectorLayerServerProperties::WmsDimensionInfo & dimInfo ) -> QgsDateTimeRange
+  auto range = [ & ]( const QgsMapLayerServerProperties::WmsDimensionInfo & dimInfo ) -> QgsDateTimeRange
   {
     QgsDateTimeRange result;
     // min
@@ -495,7 +497,7 @@ json QgsServerApiUtils::temporalExtent( const QgsVectorLayer *layer )
     return { min, max };
   };
 
-  const QList<QgsVectorLayerServerProperties::WmsDimensionInfo> dimensions { QgsServerApiUtils::temporalDimensions( layer ) };
+  const QList<QgsMapLayerServerProperties::WmsDimensionInfo> dimensions { QgsServerApiUtils::temporalDimensions( layer ) };
   if ( dimensions.isEmpty() )
   {
     return nullptr;
@@ -559,7 +561,6 @@ QVariantList QgsServerApiUtils::temporalExtentList( const QgsVectorLayer *layer 
 
 QgsCoordinateReferenceSystem QgsServerApiUtils::parseCrs( const QString &bboxCrs )
 {
-  QgsCoordinateReferenceSystem crs;
   // We get this:
   // http://www.opengis.net/def/crs/OGC/1.3/CRS84
   // We want this:
@@ -567,11 +568,11 @@ QgsCoordinateReferenceSystem QgsServerApiUtils::parseCrs( const QString &bboxCrs
   const auto parts { QUrl( bboxCrs ).path().split( '/' ) };
   if ( parts.count() == 6 )
   {
-    return crs.fromOgcWmsCrs( QStringLiteral( "urn:ogc:def:crs:%1:%2:%3" ).arg( parts[3], parts[4], parts[5] ) );
+    return QgsCoordinateReferenceSystem::fromOgcWmsCrs( QStringLiteral( "urn:ogc:def:crs:%1:%2:%3" ).arg( parts[3], parts[4], parts[5] ) );
   }
   else
   {
-    return crs;
+    return QgsCoordinateReferenceSystem();
   }
 }
 

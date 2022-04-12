@@ -170,8 +170,7 @@ QgsRichTextEditor::QgsRichTextEditor( QWidget *parent )
   connect( mActionDecreaseIndent, &QAction::triggered, this, &QgsRichTextEditor::decreaseIndentation );
 
   // font size
-  const QFontDatabase db;
-  const QList< int > sizes = db.standardSizes();
+  const QList< int > sizes = QFontDatabase::standardSizes();
   for ( const int size : sizes )
     mFontSizeCombo->addItem( QString::number( size ), size );
 
@@ -215,6 +214,9 @@ QgsRichTextEditor::QgsRichTextEditor( QWidget *parent )
 #endif
 
   fontChanged( mTextEdit->font() );
+
+  connect( mTextEdit, &QTextEdit::textChanged, this, &QgsRichTextEditor::textChanged );
+  connect( mSourceEdit, &QgsCodeEditorHTML::textChanged, this, &QgsRichTextEditor::textChanged );
 }
 
 QString QgsRichTextEditor::toPlainText() const

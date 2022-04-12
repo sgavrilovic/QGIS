@@ -663,7 +663,9 @@ void QgsDxfExport::writeEntities()
     const QgsCoordinateTransform ct( job->crs, mMapSettings.destinationCrs(), mMapSettings.transformContext() );
 
     QgsFeatureRequest request = QgsFeatureRequest().setSubsetOfAttributes( job->attributes, job->fields ).setExpressionContext( job->renderContext.expressionContext() );
-    request.setFilterRect( ct.transformBoundingBox( mExtent, QgsCoordinateTransform::ReverseTransform ) );
+    QgsCoordinateTransform extentTransform = ct;
+    extentTransform.setBallparkTransformsAreAppropriate( true );
+    request.setFilterRect( extentTransform.transformBoundingBox( mExtent, Qgis::TransformDirection::Reverse ) );
 
     QgsFeatureIterator featureIt = job->featureSource.getFeatures( request );
 
@@ -771,6 +773,7 @@ void QgsDxfExport::prepareRenderers()
 
   mRenderContext.expressionContext().appendScope( QgsExpressionContextUtils::projectScope( QgsProject::instance() ) );
   mRenderContext.expressionContext().appendScope( QgsExpressionContextUtils::globalScope() );
+  mRenderContext.expressionContext().appendScope( QgsExpressionContextUtils::mapSettingsScope( mMapSettings ) );
 
   mLabelingEngine = std::make_unique<QgsDefaultLabelingEngine>();
   mLabelingEngine->setMapSettings( mMapSettings );
@@ -1613,24 +1616,6 @@ void QgsDxfExport::addFeature( QgsSymbolRenderContext &ctx, const QgsCoordinateT
       case QgsWkbTypes::CircularString:
       case QgsWkbTypes::CompoundCurve:
       case QgsWkbTypes::LineString:
-      {
-        if ( !qgsDoubleNear( offset, 0.0 ) )
-        {
-          QgsGeos geos( sourceGeom );
-          tempGeom.reset( geos.offsetCurve( offset, 0, Qgis::JoinStyle::Miter, 2.0 ) );  //#spellok
-          if ( tempGeom )
-            sourceGeom = tempGeom.get();
-          else
-            sourceGeom = geom.constGet();
-        }
-
-        const QgsCurve *curve = dynamic_cast<const QgsCurve *>( sourceGeom );
-        Q_ASSERT( curve );
-        writePolyline( *curve, layer, lineStyleName, penColor, width );
-
-        break;
-      }
-
       case QgsWkbTypes::MultiCurve:
       case QgsWkbTypes::MultiLineString:
       {
@@ -1644,42 +1629,30 @@ void QgsDxfExport::addFeature( QgsSymbolRenderContext &ctx, const QgsCoordinateT
             sourceGeom = geom.constGet();
         }
 
-        const QgsGeometryCollection *gc = dynamic_cast<const QgsGeometryCollection *>( sourceGeom );
-        Q_ASSERT( gc );
-
-        for ( int i = 0; i < gc->numGeometries(); i++ )
+        const QgsCurve *curve = dynamic_cast<const QgsCurve *>( sourceGeom );
+        if ( curve )
         {
-          const QgsCurve *curve = dynamic_cast<const QgsCurve *>( gc->geometryN( i ) );
-          Q_ASSERT( curve );
           writePolyline( *curve, layer, lineStyleName, penColor, width );
         }
-
+        else
+        {
+          const QgsGeometryCollection *gc = dynamic_cast<const QgsGeometryCollection *>( sourceGeom );
+          Q_ASSERT( gc );
+          if ( gc )
+          {
+            for ( int i = 0; i < gc->numGeometries(); i++ )
+            {
+              const QgsCurve *curve = dynamic_cast<const QgsCurve *>( gc->geometryN( i ) );
+              Q_ASSERT( curve );
+              writePolyline( *curve, layer, lineStyleName, penColor, width );
+            }
+          }
+        }
         break;
       }
 
       case QgsWkbTypes::CurvePolygon:
       case QgsWkbTypes::Polygon:
-      {
-        if ( !qgsDoubleNear( offset, 0.0 ) )
-        {
-          QgsGeos geos( sourceGeom );
-          tempGeom.reset( geos.buffer( offset, 0, Qgis::EndCapStyle::Flat, Qgis::JoinStyle::Miter, 2.0 ) );  //#spellok
-          if ( tempGeom )
-            sourceGeom = tempGeom.get();
-          else
-            sourceGeom = geom.constGet();
-        }
-
-        const QgsCurvePolygon *polygon = dynamic_cast<const QgsCurvePolygon *>( sourceGeom );
-        Q_ASSERT( polygon );
-
-        writePolyline( *polygon->exteriorRing(), layer, lineStyleName, penColor, width );
-        for ( int i = 0; i < polygon->numInteriorRings(); i++ )
-          writePolyline( *polygon->interiorRing( i ), layer, lineStyleName, penColor, width );
-
-        break;
-      }
-
       case QgsWkbTypes::MultiSurface:
       case QgsWkbTypes::MultiPolygon:
       {
@@ -1693,17 +1666,29 @@ void QgsDxfExport::addFeature( QgsSymbolRenderContext &ctx, const QgsCoordinateT
             sourceGeom = geom.constGet();
         }
 
-        const QgsGeometryCollection *gc = dynamic_cast<const QgsGeometryCollection *>( sourceGeom );
-        Q_ASSERT( gc );
-
-        for ( int i = 0; i < gc->numGeometries(); i++ )
+        const QgsCurvePolygon *polygon = dynamic_cast<const QgsCurvePolygon *>( sourceGeom );
+        if ( polygon )
         {
-          const QgsCurvePolygon *polygon = dynamic_cast<const QgsCurvePolygon *>( gc->geometryN( i ) );
-          Q_ASSERT( polygon );
-
           writePolyline( *polygon->exteriorRing(), layer, lineStyleName, penColor, width );
-          for ( int j = 0; j < polygon->numInteriorRings(); j++ )
-            writePolyline( *polygon->interiorRing( j ), layer, lineStyleName, penColor, width );
+          for ( int i = 0; i < polygon->numInteriorRings(); i++ )
+            writePolyline( *polygon->interiorRing( i ), layer, lineStyleName, penColor, width );
+        }
+        else
+        {
+          const QgsGeometryCollection *gc = dynamic_cast<const QgsGeometryCollection *>( sourceGeom );
+          Q_ASSERT( gc );
+          if ( gc )
+          {
+            for ( int i = 0; i < gc->numGeometries(); i++ )
+            {
+              const QgsCurvePolygon *polygon = dynamic_cast<const QgsCurvePolygon *>( gc->geometryN( i ) );
+              Q_ASSERT( polygon );
+
+              writePolyline( *polygon->exteriorRing(), layer, lineStyleName, penColor, width );
+              for ( int j = 0; j < polygon->numInteriorRings(); j++ )
+                writePolyline( *polygon->interiorRing( j ), layer, lineStyleName, penColor, width );
+            }
+          }
         }
 
         break;
@@ -2139,6 +2124,9 @@ QString QgsDxfExport::dxfLayerName( const QString &name )
   layerName.replace( '|', '_' );
   layerName.replace( '=', '_' );
   layerName.replace( '\'', '_' );
+  // if layer name contains comma, resulting file is unreadable in AutoCAD
+  // see https://github.com/qgis/QGIS/issues/47381
+  layerName.replace( ',', '_' );
 
   // also remove newline characters (#15067)
   layerName.replace( QLatin1String( "\r\n" ), QLatin1String( "_" ) );

@@ -149,7 +149,11 @@ QList<QgsLabelFeature *> QgsVectorLayerLabelProvider::labelFeatures( QgsRenderCo
 
   QgsRectangle layerExtent = ctx.extent();
   if ( mSettings.ct.isValid() && !mSettings.ct.isShortCircuited() )
-    layerExtent = mSettings.ct.transformBoundingBox( ctx.extent(), QgsCoordinateTransform::ReverseTransform );
+  {
+    QgsCoordinateTransform extentTransform = mSettings.ct;
+    extentTransform.setBallparkTransformsAreAppropriate( true );
+    layerExtent = extentTransform.transformBoundingBox( ctx.extent(), Qgis::TransformDirection::Reverse );
+  }
 
   QgsFeatureRequest request;
   request.setFilterRect( layerExtent );
@@ -268,7 +272,7 @@ QgsGeometry QgsVectorLayerLabelProvider::getPointObstacleGeometry( QgsFeature &f
     {
       try
       {
-        boundLineString->transform( context.coordinateTransform(), QgsCoordinateTransform::ReverseTransform );
+        boundLineString->transform( context.coordinateTransform(), Qgis::TransformDirection::Reverse );
       }
       catch ( QgsCsException & )
       {

@@ -36,9 +36,6 @@
 QgsFileWidget::QgsFileWidget( QWidget *parent )
   : QWidget( parent )
 {
-  setBackgroundRole( QPalette::Window );
-  setAutoFillBackground( true );
-
   mLayout = new QHBoxLayout();
   mLayout->setContentsMargins( 0, 0, 0, 0 );
 
@@ -59,6 +56,7 @@ QgsFileWidget::QgsFileWidget( QWidget *parent )
   mLineEdit->setDragEnabled( true );
   mLineEdit->setToolTip( tr( "Full path to the file(s), including name and extension" ) );
   connect( mLineEdit, &QLineEdit::textChanged, this, &QgsFileWidget::textEdited );
+  connect( mLineEdit, &QgsFileDropEdit::fileDropped, this, &QgsFileWidget::fileDropped );
   mLayout->addWidget( mLineEdit );
 
   mLinkEditButton = new QToolButton( this );
@@ -190,6 +188,13 @@ void QgsFileWidget::editLink()
   updateLayout();
 }
 
+void QgsFileWidget::fileDropped( const QString &filePath )
+{
+  setSelectedFileNames( QStringList() << filePath );
+  mLineEdit->selectAll();
+  mLineEdit->setFocus( Qt::MouseFocusReason );
+}
+
 bool QgsFileWidget::useLink() const
 {
   return mUseLink;
@@ -273,7 +278,7 @@ void QgsFileWidget::openFileDialog()
 
   // if we use a relative path option, we need to obtain the full path
   // first choice is the current file path, if one is entered
-  if ( !mFilePath.isEmpty() )
+  if ( !mFilePath.isEmpty() && ( QFile::exists( mFilePath ) || mStorageMode == SaveFile ) )
   {
     oldPath = relativePath( mFilePath, false );
   }
@@ -488,7 +493,7 @@ void QgsFileDropEdit::setFilters( const QString &filters )
   }
 }
 
-QString QgsFileDropEdit::acceptableFilePath( QDropEvent *event ) const
+QStringList QgsFileDropEdit::acceptableFilePaths( QDropEvent *event ) const
 {
   QStringList rawPaths;
   QStringList paths;
@@ -545,6 +550,12 @@ QString QgsFileDropEdit::acceptableFilePath( QDropEvent *event ) const
     }
   }
 
+  return paths;
+}
+
+QString QgsFileDropEdit::acceptableFilePath( QDropEvent *event ) const
+{
+  const QStringList paths = acceptableFilePaths( event );
   if ( paths.size() > 1 )
   {
     return QStringLiteral( "\"%1\"" ).arg( paths.join( QLatin1String( "\" \"" ) ) );
@@ -585,12 +596,11 @@ void QgsFileDropEdit::dropEvent( QDropEvent *event )
   QString filePath = acceptableFilePath( event );
   if ( !filePath.isEmpty() )
   {
-    setText( filePath );
-    selectAll();
-    setFocus( Qt::MouseFocusReason );
     event->acceptProposedAction();
-    setHighlighted( false );
+    emit fileDropped( filePath );
   }
+
+  setHighlighted( false );
 }
 
 ///@endcond

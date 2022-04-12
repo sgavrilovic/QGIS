@@ -686,10 +686,9 @@ Qgis::DataType QgsPostgresRasterProvider::dataType( int bandNo ) const
 {
   if ( mDataTypes.size() < static_cast<unsigned long>( bandNo ) )
   {
-    QgsMessageLog::logMessage( tr( "Data type size for band %1 could not be found: num bands is: %2 and the type size map for bands contains: %3 items" )
+    QgsMessageLog::logMessage( tr( "Data type size for band %1 could not be found: num bands is: %2 and the type size map for bands contains: %n item(s)", nullptr, mDataSizes.size() )
                                .arg( bandNo )
-                               .arg( mBandCount )
-                               .arg( mDataSizes.size() ),
+                               .arg( mBandCount ),
                                QStringLiteral( "PostGIS" ), Qgis::MessageLevel::Warning );
     return Qgis::DataType::UnknownDataType;
   }
@@ -1095,7 +1094,8 @@ bool QgsPostgresRasterProvider::init()
         QgsPolygon p;
         // Strip \x
         const QByteArray hexAscii { result.PQgetvalue( 0, 5 ).toLatin1().mid( 2 ) };
-        QgsConstWkbPtr ptr { QByteArray::fromHex( hexAscii ) };
+        const QByteArray hexBin = QByteArray::fromHex( hexAscii );
+        QgsConstWkbPtr ptr { hexBin };
 
         if ( hexAscii.isEmpty() || ! p.fromWkb( ptr ) )
         {
@@ -1108,7 +1108,8 @@ bool QgsPostgresRasterProvider::init()
 
           QgsPostgresResult extentResult( connectionRO()->PQexec( extentSql ) );
           const QByteArray extentHexAscii { extentResult.PQgetvalue( 0, 0 ).toLatin1() };
-          QgsConstWkbPtr extentPtr { QByteArray::fromHex( extentHexAscii ) };
+          const QByteArray extentHexBin = QByteArray::fromHex( extentHexAscii );
+          QgsConstWkbPtr extentPtr { extentHexBin };
           if ( extentHexAscii.isEmpty() || ! p.fromWkb( extentPtr ) )
           {
             throw QgsPostgresRasterProviderException( tr( "Cannot get extent from raster" ) );
@@ -1258,7 +1259,8 @@ bool QgsPostgresRasterProvider::init()
     QgsPolygon p;
     try
     {
-      QgsConstWkbPtr ptr { QByteArray::fromHex( result.PQgetvalue( 0, 0 ).toLatin1() ) };
+      const QByteArray hexBin = QByteArray::fromHex( result.PQgetvalue( 0, 0 ).toLatin1() );
+      QgsConstWkbPtr ptr { hexBin };
       if ( ! p.fromWkb( ptr ) )
       {
         QgsMessageLog::logMessage( tr( "Cannot get extent from raster" ),
@@ -1418,7 +1420,7 @@ bool QgsPostgresRasterProvider::initFieldsAndTemporal( )
           mTemporalFieldIndex = temporalFieldIndex;
           temporalCapabilities()->setHasTemporalCapabilities( true );
           temporalCapabilities()->setAvailableTemporalRange( { minTime, maxTime } );
-          temporalCapabilities()->setIntervalHandlingMethod( QgsRasterDataProviderTemporalCapabilities::FindClosestMatchToStartOfRange );
+          temporalCapabilities()->setIntervalHandlingMethod( Qgis::TemporalIntervalMatchMethod::FindClosestMatchToStartOfRange );
           QgsDebugMsgLevel( QStringLiteral( "Raster temporal range for field %1: %2 - %3" ).arg( QString::number( mTemporalFieldIndex ), minTime.toString(), maxTime.toString() ), 3 );
 
           if ( mUri.hasParam( QStringLiteral( "temporalDefaultTime" ) ) )

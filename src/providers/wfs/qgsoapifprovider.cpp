@@ -335,7 +335,17 @@ const QString &QgsOapifProvider::clientSideFilterExpression() const
   return mShared->mClientSideFilterExpression;
 }
 
+void QgsOapifProvider::handlePostCloneOperations( QgsVectorDataProvider *source )
+{
+  mShared = qobject_cast<QgsOapifProvider *>( source )  ->mShared;
+}
+
 QString QgsOapifProvider::name() const
+{
+  return OAPIF_PROVIDER_KEY;
+}
+
+QString QgsOapifProvider::providerKey()
 {
   return OAPIF_PROVIDER_KEY;
 }
@@ -587,7 +597,7 @@ bool QgsOapifSharedData::computeServerFilter( QString &errorMsg )
   return true;
 }
 
-void QgsOapifSharedData::pushError( const QString &errorMsg )
+void QgsOapifSharedData::pushError( const QString &errorMsg ) const
 {
   QgsMessageLog::logMessage( errorMsg, tr( "OAPIF" ) );
   emit raiseError( errorMsg );

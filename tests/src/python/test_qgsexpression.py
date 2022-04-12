@@ -70,6 +70,11 @@ class TestQgsExpressionCustomFunctions(unittest.TestCase):
         vals = [val for val in values if val != NULL]
         return sum(vals) / len(vals)
 
+    @qgsfunction(group='testing', register=False)
+    def raise_exception(feature, parent):
+        # an undefined variable
+        foo  # noqa: F821
+
     def tearDown(self):
         QgsExpression.unregisterFunction('testfun')
 
@@ -83,7 +88,8 @@ class TestQgsExpressionCustomFunctions(unittest.TestCase):
         args = function.params()
         self.assertEqual(args, 3)
 
-    def testHelp(self):
+    def testHelpPythonFunction(self):
+        """Test help about python function."""
         QgsExpression.registerFunction(self.help_with_variable)
         html = ('<h3>help_with_variable function</h3><br>'
                 'The help comes from a variable.')
@@ -93,6 +99,12 @@ class TestQgsExpressionCustomFunctions(unittest.TestCase):
         html = ('<h3>help_with_docstring function</h3><br>'
                 'The help comes from the python docstring.')
         self.assertEqual(self.help_with_docstring.helpText(), html)
+
+    def testHelpString(self):
+        """Test add custom help string."""
+        self.assertTrue(QgsExpression.addVariableHelpText("custom_variable_help", "custom help 1"))
+        self.assertFalse(QgsExpression.addVariableHelpText("custom_variable_help", "other help 2"))
+        self.assertEqual(QgsExpression.variableHelpText("custom_variable_help"), "custom help 1")
 
     def testAutoArgsAreExpanded(self):
         function = self.expandargs
@@ -264,11 +276,53 @@ class TestQgsExpressionCustomFunctions(unittest.TestCase):
         res = '"my\'field" = TRUE'
         self.assertEqual(e.createFieldEqualityExpression(field, value), res)
 
+        # test with field type
+        field = "myfield"
+        value = 1
+        type = QVariant.String
+        res = '"myfield" = \'1\''
+        self.assertEqual(e.createFieldEqualityExpression(field, value, type), res)
+
+        # test with field type
+        field = "myfield"
+        value = "1"
+        type = QVariant.Int
+        res = '"myfield" = 1'
+        self.assertEqual(e.createFieldEqualityExpression(field, value, type), res)
+
     def testReferencedAttributeIndexesNonExistingField(self):
         e = QgsExpression()
         e.setExpression("foo = 1")
         self.assertTrue(e.isValid())
         self.assertEqual(len(e.referencedAttributeIndexes(QgsFields())), 0)
+
+    def testSuccessfulEvaluationReturnsNoEvalErrorString(self):
+        exp = QgsExpression("True is False")  # the result does not matter
+        self.assertEqual(exp.evalErrorString(), "")
+
+    def testExceptionDuringEvalReturnsTraceback(self):
+        QgsExpression.registerFunction(self.raise_exception)
+        exp = QgsExpression('raise_exception()')
+        result = exp.evaluate()
+        # The file paths and line offsets are dynamic
+        regex = (
+            "name 'foo' is not defined:<pre>Traceback \\(most recent call last\\):\n"
+            "  File \".*qgsfunction.py\", line [0-9]+, in func\n"
+            "    return self.function\\(\\*values\\)\n"
+            "  File \".*test_qgsexpression.py\", line [0-9]+, in raise_exception\n"
+            "    foo  # noqa: F821\n"
+            "NameError: name \'foo\' is not defined"
+            "\n</pre>"
+        )
+        self.assertRegex(exp.evalErrorString(), regex)
+
+    def testBetween(self):
+
+        e = QgsExpression()
+        e.setExpression("'b'")
+        self.assertTrue(e.isValid(), e.parserErrorString())
+        e.setExpression("'b' between 'a' AND 'c'")
+        self.assertTrue(e.isValid(), e.parserErrorString())
 
 
 if __name__ == "__main__":

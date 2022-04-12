@@ -68,6 +68,8 @@ class QgsOapifProvider final: public QgsVectorDataProvider
     QString name() const override;
     QString description() const override;
 
+    static QString providerKey();
+
     QgsVectorDataProvider::Capabilities capabilities() const override;
 
     QgsLayerMetadata layerMetadata() const override { return mLayerMetadata; }
@@ -86,6 +88,8 @@ class QgsOapifProvider final: public QgsVectorDataProvider
 
     //! For QgsWFSSourceSelect::buildQuery()
     const QString &clientSideFilterExpression() const;
+
+    void handlePostCloneOperations( QgsVectorDataProvider *source ) override;
 
   private slots:
 
@@ -142,7 +146,7 @@ class QgsOapifSharedData final: public QObject, public QgsBackgroundCachedShared
   signals:
 
     //! Raise error
-    void raiseError( const QString &errorMsg );
+    void raiseError( const QString &errorMsg ) const;
 
     //! Extent has been updated
     void extentUpdated();
@@ -186,7 +190,7 @@ class QgsOapifSharedData final: public QObject, public QgsBackgroundCachedShared
                                    QString &untranslatedPart );
 
     //! Log error to QgsMessageLog and raise it to the provider
-    void pushError( const QString &errorMsg ) override;
+    void pushError( const QString &errorMsg ) const override;
 
     void emitExtentUpdated() override { emit extentUpdated(); }
 

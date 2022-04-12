@@ -21,15 +21,17 @@
 
 #include "qgsfeature.h"
 #include "qgsexpression.h"
-#include "qgscolorramp.h"
 #include "qgsvectorlayerfeatureiterator.h"
 #include "qgsrasterlayer.h"
 #include "qgsproject.h"
 #include "qgsrelationmanager.h"
 #include "qgsvectorlayer.h"
+#include "qgsmeshlayer.h"
 
 #include <QThread>
 #include <QLocale>
+
+class QgsGradientColorRamp;
 
 #define ENSURE_NO_EVAL_ERROR   {  if ( parent->hasEvalError() ) return QVariant(); }
 #define SET_EVAL_ERROR(x)   { parent->setEvalErrorString( x ); return QVariant(); }
@@ -37,13 +39,19 @@
 #define FEAT_FROM_CONTEXT(c, f) if ( !(c) || !( c )->hasFeature() ) return QVariant(); \
   QgsFeature f = ( c )->feature();
 
-///////////////////////////////////////////////
-// three-value logic
+/**
+ * \ingroup core
+ * \class QgsExpressionUtils
+ * \brief A set of expression-related functions
+ * \since QGIS 3.22
+ */
 
-/// @cond PRIVATE
-class QgsExpressionUtils
+class CORE_EXPORT QgsExpressionUtils
 {
   public:
+/// @cond PRIVATE
+///////////////////////////////////////////////
+// three-value logic
     enum TVL
     {
       False,
@@ -182,7 +190,7 @@ class QgsExpressionUtils
 
     static inline bool isList( const QVariant &v )
     {
-      return v.type() == QVariant::List;
+      return v.type() == QVariant::List || v.type() == QVariant::StringList;
     }
 
 // implicit conversion to string
@@ -315,17 +323,7 @@ class QgsExpressionUtils
       return QgsInterval();
     }
 
-    static QgsGradientColorRamp getRamp( const QVariant &value, QgsExpression *parent, bool report_error = false )
-    {
-      if ( value.canConvert<QgsGradientColorRamp>() )
-        return value.value<QgsGradientColorRamp>();
-
-      // If we get here then we can't convert so we just error and return invalid.
-      if ( report_error )
-        parent->setEvalErrorString( QObject::tr( "Cannot convert '%1' to gradient ramp" ).arg( value.toString() ) );
-
-      return QgsGradientColorRamp();
-    }
+    static QgsGradientColorRamp getRamp( const QVariant &value, QgsExpression *parent, bool report_error = false );
 
     static QgsGeometry getGeometry( const QVariant &value, QgsExpression *parent )
     {
@@ -358,6 +356,17 @@ class QgsExpressionUtils
     {
       // First check if we already received a layer pointer
       QgsMapLayer *ml = value.value< QgsWeakMapLayerPointer >().data();
+      if ( !ml )
+      {
+        ml = value.value< QgsMapLayer * >();
+#ifdef QGISDEBUG
+        if ( ml )
+        {
+          qWarning( "Raw map layer pointer stored in expression evaluation, switch to QgsWeakMapLayerPointer instead" );
+        }
+#endif
+      }
+
       QgsProject *project = QgsProject::instance();
 
       // No pointer yet, maybe it's a layer id?
@@ -404,6 +413,18 @@ class QgsExpressionUtils
     {
       return qobject_cast<QgsRasterLayer *>( getMapLayer( value, e ) );
     }
+
+    static QgsMeshLayer *getMeshLayer( const QVariant &value, QgsExpression *e )
+    {
+      return qobject_cast<QgsMeshLayer *>( getMapLayer( value, e ) );
+    }
+
+    /**
+     * Tries to convert a \a value to a file path.
+     *
+     * \since QGIS 3.24
+     */
+    static QString getFilePathValue( const QVariant &value, QgsExpression *parent );
 
     static QVariantList getListValue( const QVariant &value, QgsExpression *parent )
     {
@@ -485,8 +506,20 @@ class QgsExpressionUtils
         return value.toString();
       }
     }
+/// @endcond
+
+    /**
+     * Returns a value type and user type for a given expression.
+     * \param expression An expression string.
+     * \param layer A vector layer from which the expression will be executed against.
+     * \param request A feature request object.
+     * \param context An expression context object.
+     * \param foundFeatures An optional boolean parameter that will be set when features are found.
+     * \since QGIS 3.22
+     */
+    static std::tuple<QVariant::Type, int> determineResultType( const QString &expression, const QgsVectorLayer *layer, QgsFeatureRequest request = QgsFeatureRequest(), QgsExpressionContext context = QgsExpressionContext(), bool *foundFeatures = nullptr );
+
 };
 
-/// @endcond
 
 #endif // QGSEXPRESSIONUTILS_H

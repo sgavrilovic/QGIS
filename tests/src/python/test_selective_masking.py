@@ -124,6 +124,8 @@ class TestSelectiveMasking(unittest.TestCase):
         # polygon layer with a rule based labeling
         self.polys_layer2 = QgsProject.instance().mapLayersByName('polys2')[0]
 
+        self.raster_layer = QgsProject.instance().mapLayersByName('raster_layer')[0]
+
         # try to fix the font for where labels are defined
         # in order to have more stable image comparison tests
         for layer in [self.polys_layer, self.lines_with_labels, self.polys_layer2]:
@@ -737,8 +739,8 @@ class TestSelectiveMasking(unittest.TestCase):
         map.setLayers([self.points_layer, self.lines_layer, self.polys_layer])
 
         image = QImage(591, 591, QImage.Format_RGB32)
-        image.setDotsPerMeterX(300 / 25.3 * 1000)
-        image.setDotsPerMeterY(300 / 25.3 * 1000)
+        image.setDotsPerMeterX(int(300 / 25.3 * 1000))
+        image.setDotsPerMeterY(int(300 / 25.3 * 1000))
         image.fill(0)
         p = QPainter(image)
         exporter = QgsLayoutExporter(layout)
@@ -754,6 +756,31 @@ class TestSelectiveMasking(unittest.TestCase):
         res = self.checker.compareImages(control_name)
         self.report += self.checker.report()
         self.assertTrue(res)
+
+    def test_different_dpi_target(self):
+        """Test with raster layer and a target dpi"""
+
+        # modify labeling settings
+        label_settings = self.polys_layer.labeling().settings()
+        fmt = label_settings.format()
+        # enable a mask
+        fmt.mask().setEnabled(True)
+        fmt.mask().setSize(4.0)
+        # and mask other symbol layers underneath
+        fmt.mask().setMaskedSymbolLayers([
+            # the black part of roads
+            QgsSymbolLayerReference(self.lines_layer.id(), QgsSymbolLayerId("", 0))])
+
+        label_settings.setFormat(fmt)
+        self.polys_layer.labeling().setSettings(label_settings)
+
+        self.map_settings.setLayers([self.lines_layer, self.polys_layer, self.raster_layer])
+        self.map_settings.setDpiTarget(300)
+        self.check_renderings(self.map_settings, "different_dpi_target")
+
+        # test with high dpi screen
+        self.map_settings.setDevicePixelRatio(2)
+        self.check_renderings(self.map_settings, "different_dpi_target_hdpi")
 
 
 if __name__ == '__main__':

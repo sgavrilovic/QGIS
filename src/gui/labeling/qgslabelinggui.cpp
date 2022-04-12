@@ -200,6 +200,7 @@ void QgsLabelingGui::showLineAnchorSettings()
     mLineSettings.setLineAnchorPercent( widgetSettings.lineAnchorPercent() );
     mLineSettings.setAnchorType( widgetSettings.anchorType() );
     mLineSettings.setAnchorClipping( widgetSettings.anchorClipping() );
+    mLineSettings.setAnchorTextPoint( widgetSettings.anchorTextPoint() );
     const QgsPropertyCollection obstacleDataDefinedProperties = widget->dataDefinedProperties();
     widget->updateDataDefinedProperties( mDataDefinedProperties );
     emit widgetChanged();
@@ -243,6 +244,15 @@ QgsLabelingGui::QgsLabelingGui( QgsVectorLayer *layer, QgsMapCanvas *mapCanvas, 
   mFontMultiLineAlignComboBox->addItem( tr( "Center" ), QgsPalLayerSettings::MultiCenter );
   mFontMultiLineAlignComboBox->addItem( tr( "Right" ), QgsPalLayerSettings::MultiRight );
   mFontMultiLineAlignComboBox->addItem( tr( "Justify" ), QgsPalLayerSettings::MultiJustify );
+
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleDegrees ), QgsUnitTypes::AngleDegrees );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleRadians ), QgsUnitTypes::AngleRadians );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleGon ), QgsUnitTypes::AngleGon );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleMinutesOfArc ), QgsUnitTypes::AngleMinutesOfArc );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleSecondsOfArc ), QgsUnitTypes::AngleSecondsOfArc );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleTurn ), QgsUnitTypes::AngleTurn );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleMilliradiansSI ), QgsUnitTypes::AngleMilliradiansSI );
+  mCoordRotationUnitComboBox->addItem( QgsUnitTypes::toString( QgsUnitTypes::AngleMilNATO ), QgsUnitTypes::AngleMilNATO );
 
   // connections for groupboxes with separate activation checkboxes (that need to honor data defined setting)
   connect( mBufferDrawChkBx, &QAbstractButton::toggled, this, &QgsLabelingGui::updateUi );
@@ -425,6 +435,10 @@ void QgsLabelingGui::setLayer( QgsMapLayer *mapLayer )
 
   chkPreserveRotation->setChecked( mSettings.preserveRotation );
 
+  mCoordRotationUnitComboBox->setCurrentIndex( 0 );
+  if ( mCoordRotationUnitComboBox->findData( static_cast< unsigned int >( mSettings.rotationUnit() ) ) >= 0 )
+    mCoordRotationUnitComboBox->setCurrentIndex( mCoordRotationUnitComboBox->findData( static_cast< unsigned int >( mSettings.rotationUnit() ) ) );
+
   mScaleBasedVisibilityChkBx->setChecked( mSettings.scaleVisibility );
   mMinScaleWidget->setScale( mSettings.minimumScale );
   mMaxScaleWidget->setScale( mSettings.maximumScale );
@@ -453,7 +467,7 @@ void QgsLabelingGui::setLayer( QgsMapLayer *mapLayer )
   }
   else
   {
-    std::unique_ptr< QgsCallout > defaultCallout( QgsApplication::calloutRegistry()->defaultCallout() );
+    std::unique_ptr< QgsCallout > defaultCallout( QgsCalloutRegistry::defaultCallout() );
     whileBlocking( mCalloutStyleComboBox )->setCurrentIndex( mCalloutStyleComboBox->findData( defaultCallout->type() ) );
     whileBlocking( mCalloutsDrawCheckBox )->setChecked( false );
     updateCalloutWidget( defaultCallout.get() );
@@ -469,7 +483,6 @@ void QgsLabelingGui::setLayer( QgsMapLayer *mapLayer )
   // do this after other widgets are configured, so they can be enabled/disabled
   populateDataDefinedButtons();
 
-  enableDataDefinedAlignment( mCoordXDDBtn->isActive() && mCoordYDDBtn->isActive() );
   updateUi(); // should come after data defined button setup
 }
 
@@ -559,6 +572,7 @@ QgsPalLayerSettings QgsLabelingGui::layerSettings()
   lyr.lineSettings().setLineAnchorPercent( mLineSettings.lineAnchorPercent() );
   lyr.lineSettings().setAnchorType( mLineSettings.anchorType() );
   lyr.lineSettings().setAnchorClipping( mLineSettings.anchorClipping() );
+  lyr.lineSettings().setAnchorTextPoint( mLineSettings.anchorTextPoint() );
 
   lyr.labelPerPart = chkLabelPerFeaturePart->isChecked();
   lyr.displayAll = mPalShowAllLabelsForLayerChkBx->isChecked();
@@ -607,6 +621,7 @@ QgsPalLayerSettings QgsLabelingGui::layerSettings()
   lyr.useMaxLineLengthForAutoWrap = mAutoWrapTypeComboBox->currentIndex() == 0;
   lyr.multilineAlign = static_cast< QgsPalLayerSettings::MultiLineAlign >( mFontMultiLineAlignComboBox->currentData().toInt() );
   lyr.preserveRotation = chkPreserveRotation->isChecked();
+  lyr.setRotationUnit( static_cast< QgsUnitTypes::AngleUnit >( mCoordRotationUnitComboBox->currentData().toInt() ) );
   lyr.geometryGenerator = mGeometryGenerator->text();
   lyr.geometryGeneratorType = mGeometryGeneratorType->currentData().value<QgsWkbTypes::GeometryType>();
   lyr.geometryGeneratorEnabled = mGeometryGeneratorGroupBox->isChecked();

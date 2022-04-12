@@ -18,6 +18,7 @@
 #include <QHash>
 #include <QMap>
 #include <QNetworkRequest>
+#include <QSet>
 #include <QStringList>
 #include <QVector>
 
@@ -198,7 +199,7 @@ struct QgsWmsDimensionProperty
       QDateTime start = QDateTime::fromString( extentContent.at( 0 ), Qt::ISODateWithMs );
       QDateTime end = QDateTime::fromString( extentContent.at( extentSize - 2 ), Qt::ISODateWithMs );
 
-      if ( start.isValid() & end.isValid() )
+      if ( start.isValid() && end.isValid() )
         return QgsDateTimeRange( start, end );
     }
 
@@ -857,6 +858,8 @@ class QgsWmsSettings
 
     bool mEnableContextualLegend;
 
+    QString mInterpretation;
+
     friend class QgsWmsProvider;
 };
 
@@ -1033,6 +1036,22 @@ class QgsWmsCapabilitiesDownload : public QObject
     bool downloadCapabilities();
 
     bool downloadCapabilities( const QString &baseUrl, const QgsWmsAuthorization &auth );
+
+    /**
+     * Returns the download refresh state.
+     * \see setForceRefresh()
+     *
+     * \since QGIS 3.22
+     */
+    bool forceRefresh();
+
+    /**
+     * Sets the download refresh state.
+     * \see forceRefresh()
+     *
+     * \since QGIS 3.22
+     */
+    void setForceRefresh( bool forceRefresh );
 
     QString lastError() const { return mError; }
 

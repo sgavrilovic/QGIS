@@ -43,7 +43,7 @@ QgsTransaction *QgsTransaction::create( const QSet<QgsVectorLayer *> &layers )
   {
     for ( QgsVectorLayer *layer : layers )
     {
-      if ( !transaction->addLayer( layer ) )
+      if ( !transaction->addLayer( layer, false ) )
       {
         transaction.reset();
         break;
@@ -64,6 +64,11 @@ QgsTransaction::QgsTransaction( const QString &connString )
 QgsTransaction::~QgsTransaction()
 {
   setLayerTransactionIds( nullptr );
+}
+
+QString QgsTransaction::connectionString() const
+{
+  return mConnString;
 }
 
 // For the needs of the OGR provider with GeoPackage datasources, remove
@@ -106,12 +111,13 @@ QString QgsTransaction::connectionString( const QString &layerUri )
 }
 ///@endcond
 
-bool QgsTransaction::addLayer( QgsVectorLayer *layer )
+bool QgsTransaction::addLayer( QgsVectorLayer *layer, bool addLayersInEditMode )
 {
   if ( !layer )
     return false;
 
-  if ( layer->isEditable() )
+  if ( ! addLayersInEditMode
+       && layer->isEditable() )
     return false;
 
   //test if provider supports transactions
@@ -223,16 +229,7 @@ QString QgsTransaction::createSavepoint( QString &error SIP_OUT )
   }
 
   const QString name( QStringLiteral( "qgis" ) + ( QUuid::createUuid().toString().mid( 1, 24 ).replace( '-', QString() ) ) );
-
-  if ( !executeSql( QStringLiteral( "SAVEPOINT %1" ).arg( QgsExpression::quotedColumnRef( name ) ), error ) )
-  {
-    QgsMessageLog::logMessage( tr( "Could not create savepoint (%1)" ).arg( error ) );
-    return QString();
-  }
-
-  mSavepoints.push( name );
-  mLastSavePointIsDirty = false;
-  return name;
+  return createSavepoint( name, error );
 }
 
 QString QgsTransaction::createSavepoint( const QString &savePointId, QString &error SIP_OUT )

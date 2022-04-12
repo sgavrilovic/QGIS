@@ -18,6 +18,7 @@
 #include "qgsdemterraintileloader_p.h"
 
 #include "qgsrasterlayer.h"
+#include "qgscoordinatetransform.h"
 
 QgsDemTerrainGenerator::~QgsDemTerrainGenerator()
 {
@@ -109,7 +110,8 @@ void QgsDemTerrainGenerator::updateGenerator()
   if ( dem )
   {
     QgsRectangle te = dem->extent();
-    const QgsCoordinateTransform terrainToMapTransform( dem->crs(), mCrs, mTransformContext );
+    QgsCoordinateTransform terrainToMapTransform( dem->crs(), mCrs, mTransformContext );
+    terrainToMapTransform.setBallparkTransformsAreAppropriate( true );
     te = terrainToMapTransform.transformBoundingBox( te );
 
     mTerrainTilingScheme = QgsTilingScheme( te, mCrs );

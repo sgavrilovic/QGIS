@@ -206,7 +206,7 @@ static bool _isRingCounterClockWise( const QgsCurve &ring )
 {
   double a = 0;
   const int count = ring.numPoints();
-  QgsVertexId::VertexType vt;
+  Qgis::VertexType vt;
   QgsPoint pt, ptPrev;
   ring.pointAt( 0, ptPrev, vt );
   for ( int i = 1; i < count + 1; ++i )
@@ -431,64 +431,6 @@ static QgsPolygon *_transform_polygon_to_new_base( const QgsPolygon &polygon, co
   return p;
 }
 
-static bool _check_intersecting_rings( const QgsPolygon &polygon )
-{
-  std::vector< std::unique_ptr< QgsGeometryEngine > > ringEngines;
-  ringEngines.reserve( 1 + polygon.numInteriorRings() );
-  ringEngines.emplace_back( QgsGeometry::createGeometryEngine( polygon.exteriorRing() ) );
-  for ( int i = 0; i < polygon.numInteriorRings(); ++i )
-    ringEngines.emplace_back( QgsGeometry::createGeometryEngine( polygon.interiorRing( i ) ) );
-
-  // we need to make sure that the polygon has no rings with self-intersection: that may
-  // crash the tessellator. The original geometry maybe have been valid and the self-intersection
-  // was introduced when transforming to a new base (in a rare case when all points are not in the same plane)
-
-  for ( const std::unique_ptr< QgsGeometryEngine > &ring : ringEngines )
-  {
-    if ( !ring->isSimple() )
-      return false;
-  }
-
-  // At this point we assume that input polygons are valid according to the OGC definition.
-  // This means e.g. no duplicate points, polygons are simple (no butterfly shaped polygon with self-intersection),
-  // internal rings are inside exterior rings, rings do not cross each other, no dangles.
-
-  // There is however an issue with polygons where rings touch:
-  //  +---+
-  //  |   |
-  //  | +-+-+
-  //  | | | |
-  //  | +-+ |
-  //  |     |
-  //  +-----+
-  // This is a valid polygon with one exterior and one interior ring that touch at one point,
-  // but poly2tri library does not allow interior rings touch each other or exterior ring.
-  // TODO: Handle the situation better - rather than just detecting the problem, try to fix
-  // it by converting touching rings into one ring.
-
-  if ( ringEngines.size() > 1 )
-  {
-    for ( size_t i = 0; i < ringEngines.size(); ++i )
-    {
-      std::unique_ptr< QgsGeometryEngine > &first = ringEngines.at( i );
-      if ( polygon.numInteriorRings() > 1 )
-        first->prepareGeometry();
-
-      // TODO this is inefficient - QgsGeometryEngine::intersects only works with QgsAbstractGeometry
-      // objects and accordingly we have to use those, instead of the previously build geos
-      // representations available in ringEngines
-      // This needs addressing by extending the QgsGeometryEngine relation tests to allow testing against
-      // another QgsGeometryEngine object.
-      for ( int interiorRing = static_cast< int >( i ); interiorRing < polygon.numInteriorRings(); ++interiorRing )
-      {
-        if ( first->intersects( polygon.interiorRing( interiorRing ) ) )
-          return false;
-      }
-    }
-  }
-  return true;
-}
-
 
 double _minimum_distance_between_coordinates( const QgsPolygon &polygon )
 {
@@ -674,7 +616,7 @@ void QgsTessellator::addPolygon( const QgsPolygon &polygon, float extrusionHeigh
         return;
       }
       const QgsPolygon *polygonSimplifiedData = qgsgeometry_cast<const QgsPolygon *>( polygonSimplified.constGet() );
-      if ( _minimum_distance_between_coordinates( *polygonSimplifiedData ) < 0.001 )
+      if ( polygonSimplifiedData == nullptr || _minimum_distance_between_coordinates( *polygonSimplifiedData ) < 0.001 )
       {
         // Failed to fix that. It could be a really tiny geometry... or maybe they gave us
         // geometry in unprojected lat/lon coordinates
@@ -685,13 +627,6 @@ void QgsTessellator::addPolygon( const QgsPolygon &polygon, float extrusionHeigh
       {
         polygonNew.reset( polygonSimplifiedData->clone() );
       }
-    }
-
-    if ( !_check_intersecting_rings( *polygonNew ) )
-    {
-      // skip the polygon - it would cause a crash inside poly2tri library
-      QgsMessageLog::logMessage( QObject::tr( "polygon rings self-intersect or intersect each other - skipping" ), QObject::tr( "3D" ) );
-      return;
     }
 
     QList< std::vector<p2t::Point *> > polylinesToDelete;

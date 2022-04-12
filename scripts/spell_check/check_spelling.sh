@@ -26,15 +26,15 @@
 EXCLUDE_SCRIPT_LIST='(\.(xml|sip|pl|sh|badquote|cmake(\.in)?)|^(debian/copyright|cmake_templates/.*|tests/testdata/labeling/README.rst|tests/testdata/font/QGIS-Vera/COPYRIGHT.TXT|doc/NEWS\.html|debian/build/))$'
 
 # always exclude these external files
-EXCLUDE_EXTERNAL_LIST='((\.(svg|qgs|laz|las|png|lock))|resources/server/src/.*|resources/server/api/ogc/static/landingpage/js/.*|tests/testdata/.*|doc/api_break.dox)$'
+EXCLUDE_EXTERNAL_LIST='((\.(svg|qgs|laz|las|png|lock|sip\.in))|resources/server/src/.*|resources/server/api/ogc/static/landingpage/js/.*|tests/testdata/.*|doc/api_break.dox)$'
 
 DIR=$(git rev-parse --show-toplevel)/scripts/spell_check
 
 AGIGNORE=${DIR}/.agignore
 
-# GNU prefix command for mac os support (gsed, gsplit)
+# GNU prefix command for bsd/mac os support (gsed, gsplit)
 GP=
-if [[ "$OSTYPE" =~ darwin* ]]; then
+if [[ "$OSTYPE" == *bsd* ]] || [[ "$OSTYPE" =~ darwin* ]]; then
   GP=g
 fi
 

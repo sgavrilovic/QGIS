@@ -23,6 +23,7 @@
 #include "qgspostgresconn.h"
 #include "qgsfields.h"
 #include "qgsprovidermetadata.h"
+#include "qgsreferencedgeometry.h"
 #include <memory>
 
 class QgsFeature;
@@ -218,9 +219,10 @@ class QgsPostgresProvider final: public QgsVectorDataProvider
      * \param value the value to convert
      * \returns a QVariant of the given type or a null QVariant
      */
-    static QVariant convertValue( QVariant::Type type, QVariant::Type subType, const QString &value, const QString &typeName );
+    QVariant convertValue( QVariant::Type type, QVariant::Type subType, const QString &value, const QString &typeName ) const;
+    static QVariant convertValue( QVariant::Type type, QVariant::Type subType, const QString &value, const QString &typeName, QgsPostgresConn *conn );
 
-    QList<QgsRelation> discoverRelations( const QgsVectorLayer *self, const QList<QgsVectorLayer *> &layers ) const override;
+    QList<QgsRelation> discoverRelations( const QgsVectorLayer *target, const QList<QgsVectorLayer *> &layers ) const override;
     QgsAttrPalIndexNameHash palAttributeIndexNames() const override;
 
     /**
@@ -242,6 +244,10 @@ class QgsPostgresProvider final: public QgsVectorDataProvider
      * \since QGIS 3.0
      */
     void setListening( bool isListening ) override;
+
+    Qgis::VectorLayerTypeFlags vectorLayerTypeFlags() const override;
+
+    void handlePostCloneOperations( QgsVectorDataProvider *source ) override;
 
   private:
 
@@ -272,10 +278,10 @@ class QgsPostgresProvider final: public QgsVectorDataProvider
     static QString getNextString( const QString &txt, int &i, const QString &sep );
     static QVariant parseHstore( const QString &txt );
     static QVariant parseJson( const QString &txt );
-    static QVariant parseOtherArray( const QString &txt, QVariant::Type subType, const QString &typeName );
+    static QVariant parseOtherArray( const QString &txt, QVariant::Type subType, const QString &typeName, QgsPostgresConn *conn );
     static QVariant parseStringArray( const QString &txt );
     static QVariant parseMultidimensionalArray( const QString &txt );
-    static QVariant parseArray( const QString &txt, QVariant::Type type, QVariant::Type subType, const QString &typeName );
+    static QVariant parseArray( const QString &txt, QVariant::Type type, QVariant::Type subType, const QString &typeName, QgsPostgresConn *conn );
 
 
     /**
@@ -498,6 +504,13 @@ class QgsPostgresProvider final: public QgsVectorDataProvider
     QgsLayerMetadata mLayerMetadata;
 
     std::unique_ptr< QgsPostgresListener > mListener;
+
+    static QgsReferencedGeometry fromEwkt( const QString &ewkt, QgsPostgresConn *conn );
+    static QString toEwkt( const QgsReferencedGeometry &geom, QgsPostgresConn *conn );
+    static QString geomAttrToString( const QVariant &attr, QgsPostgresConn *conn );
+    static int crsToSrid( const QgsCoordinateReferenceSystem &crs,  QgsPostgresConn *conn );
+    static QgsCoordinateReferenceSystem sridToCrs( int srsId, QgsPostgresConn *conn );
+
 };
 
 
@@ -595,13 +608,15 @@ class QgsPostgresProviderMetadata final: public QgsProviderMetadata
         bool overwrite,
         QMap<int, int> &oldToNewAttrIdxMap, QString &errorMessage,
         const QMap<QString, QVariant> *options ) override;
+
+    bool styleExists( const QString &uri, const QString &styleId, QString &errorCause ) override;
     bool saveStyle( const QString &uri, const QString &qmlStyle, const QString &sldStyle, const QString &styleName,
                     const QString &styleDescription, const QString &uiFileContent, bool useAsDefault, QString &errCause ) override;
     QString loadStyle( const QString &uri, QString &errCause ) override;
     int listStyles( const QString &uri, QStringList &ids,
                     QStringList &names, QStringList &descriptions, QString &errCause ) override;
-    bool deleteStyleById( const QString &uri, QString styleId, QString &errCause ) override;
-    QString getStyleById( const QString &uri, QString styleId, QString &errCause ) override;
+    bool deleteStyleById( const QString &uri, const QString &styleId, QString &errCause ) override;
+    QString getStyleById( const QString &uri, const QString &styleId, QString &errCause ) override;
     QgsTransaction *createTransaction( const QString &connString ) override;
     QMap<QString, QgsAbstractProviderConnection *> connections( bool cached = true ) override;
     QgsAbstractProviderConnection *createConnection( const QString &name ) override;

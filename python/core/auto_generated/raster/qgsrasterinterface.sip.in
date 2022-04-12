@@ -82,6 +82,24 @@ Returns a list of any errors encountered while retrieving the raster block.
 .. versionadded:: 3.8.0
 %End
 
+    QgsRenderContext renderContext() const;
+%Docstring
+Returns the render context of the associated block reading
+
+.. seealso:: :py:func:`setRenderContext`
+
+.. versionadded:: 3.24.0
+%End
+
+    void setRenderContext( const QgsRenderContext &renderContext );
+%Docstring
+Sets the render context of the associated block reading
+
+.. seealso:: :py:func:`renderContext`
+
+.. versionadded:: 3.24.0
+%End
+
 };
 
 
@@ -492,14 +510,12 @@ Fill in histogram defaults if not specified
       maximum = PyFloat_AsDouble( a4 );
     }
 
-#if defined(SIP_PROTECTED_IS_PUBLIC)
+#if defined(SIP_PROTECTED_IS_PUBLIC) || (SIP_VERSION >= 0x050000 && !defined(_MSC_VER))
     sipCpp->initHistogram( *a0, a1, a2, minimum, maximum, *a5, a6, a7 );
 #else
     sipCpp->sipProtect_initHistogram( *a0, a1, a2, minimum, maximum, *a5, a6, a7 );
 #endif
 %End
-
-
 
     void initStatistics( QgsRasterBandStats &statistics, int bandNo,
                          int stats = QgsRasterBandStats::All,

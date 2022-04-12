@@ -93,11 +93,13 @@ bool QgsAggregateAlgorithm::prepareAlgorithm( const QVariantMap &parameters, Qgs
       throw QgsProcessingException( QObject::tr( "Field name cannot be empty" ) );
 
     const QVariant::Type type = static_cast< QVariant::Type >( aggregateDef.value( QStringLiteral( "type" ) ).toInt() );
+    const QString typeName = aggregateDef.value( QStringLiteral( "type_name" ) ).toString();
+    const QVariant::Type subType = static_cast< QVariant::Type >( aggregateDef.value( QStringLiteral( "sub_type" ) ).toInt() );
 
     const int length = aggregateDef.value( QStringLiteral( "length" ), 0 ).toInt();
     const int precision = aggregateDef.value( QStringLiteral( "precision" ), 0 ).toInt();
 
-    mFields.append( QgsField( name, type, QString(), length, precision ) );
+    mFields.append( QgsField( name, type, typeName, length, precision, QString(), subType ) );
 
 
     const QString aggregateType = aggregateDef.value( QStringLiteral( "aggregate" ) ).toString();
@@ -116,11 +118,11 @@ bool QgsAggregateAlgorithm::prepareAlgorithm( const QVariantMap &parameters, Qgs
     }
     else if ( aggregateType == QLatin1String( "concatenate" ) || aggregateType == QLatin1String( "concatenate_unique" ) )
     {
-      expression = QStringLiteral( "%1(%2, %3, %4, \'%5\')" ).arg( aggregateType,
+      expression = QStringLiteral( "%1(%2, %3, %4, %5)" ).arg( aggregateType,
                    source,
                    mGroupBy,
                    QStringLiteral( "TRUE" ),
-                   delimiter );
+                   QgsExpression::quotedString( delimiter ) );
     }
     else
     {

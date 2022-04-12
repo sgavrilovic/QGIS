@@ -1136,7 +1136,9 @@ bool QgsWcsProvider::calculateExtent() const
     // Convert to the user's CRS as required
     try
     {
-      mCoverageExtent = mCoordinateTransform.transformBoundingBox( mCoverageSummary.wgs84BoundingBox, QgsCoordinateTransform::ForwardTransform );
+      QgsCoordinateTransform extentTransform = mCoordinateTransform;
+      extentTransform.setBallparkTransformsAreAppropriate( true );
+      mCoverageExtent = extentTransform.transformBoundingBox( mCoverageSummary.wgs84BoundingBox, Qgis::TransformDirection::Forward );
     }
     catch ( QgsCsException &cse )
     {
@@ -1372,7 +1374,7 @@ QString QgsWcsProvider::htmlMetadata()
   metadata += QLatin1String( "</table>" );
   if ( count < mCapabilities.coverages().size() )
   {
-    metadata += tr( "And %1 more coverages" ).arg( mCapabilities.coverages().size() - count );
+    metadata += tr( "And %n more coverage(s)", nullptr, mCapabilities.coverages().size() - count );
   }
 
   metadata += QLatin1String( "</table></div></td></tr>\n" );  // End nested table 1
@@ -1586,7 +1588,12 @@ QString QgsWcsProvider::lastErrorFormat()
   return mErrorFormat;
 }
 
-QString  QgsWcsProvider::name() const
+QString QgsWcsProvider::name() const
+{
+  return WCS_KEY;
+}
+
+QString QgsWcsProvider::providerKey()
 {
   return WCS_KEY;
 }
@@ -1979,7 +1986,10 @@ QList< QgsDataItemProvider * > QgsWcsProviderMetadata::dataItemProviders() const
 QgsWcsProviderMetadata::QgsWcsProviderMetadata():
   QgsProviderMetadata( QgsWcsProvider::WCS_KEY, QgsWcsProvider::WCS_DESCRIPTION ) {}
 
+
+#ifndef HAVE_STATIC_PROVIDERS
 QGISEXTERN QgsProviderMetadata *providerMetadataFactory()
 {
   return new QgsWcsProviderMetadata();
 }
+#endif

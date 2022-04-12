@@ -27,6 +27,8 @@ Utility class that encapsulates an action based on vector attributes.
       Windows,
       Unix,
       OpenUrl,
+      SubmitUrlEncoded,
+      SubmitUrlMultipart,
     };
 
     QgsAction();
@@ -34,7 +36,7 @@ Utility class that encapsulates an action based on vector attributes.
 Default constructor
 %End
 
-    QgsAction( ActionType type, const QString &description, const QString &command, bool capture = false );
+    QgsAction( ActionType type, const QString &description, const QString &command, bool capture = false);
 %Docstring
 Create a new QgsAction
 
@@ -42,10 +44,9 @@ Create a new QgsAction
 :param description: A human readable description string
 :param command: The action text. Its interpretation depends on the type
 :param capture: If this is set to ``True``, the output will be captured when an action is run
-:param enabledOnlyWhenEditable: if ``True`` then action is only enable in editmode. Not available in Python bindings.
 %End
 
-    QgsAction( ActionType type, const QString &description, const QString &action, const QString &icon, bool capture, const QString &shortTitle = QString(), const QSet<QString> &actionScopes = QSet<QString>(), const QString &notificationMessage = QString() );
+    QgsAction( ActionType type, const QString &description, const QString &action, const QString &icon, bool capture, const QString &shortTitle = QString(), const QSet<QString> &actionScopes = QSet<QString>(), const QString &notificationMessage = QString());
 %Docstring
 Create a new QgsAction
 
@@ -57,8 +58,23 @@ Create a new QgsAction
 :param shortTitle: A short string used to label user interface elements like buttons
 :param actionScopes: A set of scopes in which this action will be available
 :param notificationMessage: A particular message which reception will trigger the action
-:param enabledOnlyWhenEditable: if ``True`` then action is only enable in editmode. Not available in Python bindings.
 %End
+
+    QgsAction( const QUuid &id, ActionType type, const QString &description, const QString &action, const QString &icon, bool capture, const QString &shortTitle = QString(), const QSet<QString> &actionScopes = QSet<QString>(), const QString &notificationMessage = QString());
+%Docstring
+Create a new QgsAction
+
+:param id: The unique identifier of this action
+:param type: The type of this action
+:param description: A human readable description string
+:param action: The action text. Its interpretation depends on the type
+:param icon: Path to an icon for this action
+:param capture: If this is set to ``True``, the output will be captured when an action is run
+:param shortTitle: A short string used to label user interface elements like buttons
+:param actionScopes: A set of scopes in which this action will be available
+:param notificationMessage: A particular message which reception will trigger the action
+%End
+
 
     QString name() const;
 %Docstring
@@ -200,6 +216,13 @@ Sets an expression context scope to use for running the action.
 Returns an expression context scope used for running the action.
 
 .. versionadded:: 3.0
+%End
+
+    QString html( ) const;
+%Docstring
+Returns an HTML table with the basic information about this action.
+
+.. versionadded:: 3.24
 %End
 
 };

@@ -12,7 +12,6 @@
 
 
 
-
 class QgsMapRendererJob : QObject /Abstract/
 {
 %Docstring(signature="appended")
@@ -48,6 +47,8 @@ The following subclasses are available:
   public:
 
     QgsMapRendererJob( const QgsMapSettings &settings );
+
+    ~QgsMapRendererJob();
 
     void start();
 %Docstring
@@ -89,12 +90,31 @@ should be retained.
 .. versionadded:: 3.0
 %End
 
+    QStringList layersRedrawnFromCache() const;
+%Docstring
+Returns a list of the layer IDs for all layers which were redrawn from cached
+images.
+
+This method should only be called after the render job is completed.
+
+.. versionadded:: 3.22
+%End
+
     virtual QgsLabelingResults *takeLabelingResults() = 0 /Transfer/;
 %Docstring
 Gets pointer to internal labeling engine (in order to get access to the results).
 This should not be used if cached labeling was redrawn - see :py:func:`~QgsMapRendererJob.usedCachedLabels`.
 
 .. seealso:: :py:func:`usedCachedLabels`
+%End
+
+    QgsRenderedItemResults *takeRenderedItemResults() /Transfer/;
+%Docstring
+Takes the rendered item results from the map render job and returns them.
+
+Ownership is transferred to the caller.
+
+.. versionadded:: 3.22
 %End
 
     void setFeatureFilterProvider( const QgsFeatureFilterProvider *f );
@@ -137,6 +157,9 @@ Assign a cache to be used for reading and storing rendered images of individual 
 Does not take ownership of the object.
 %End
 
+
+
+
     int renderingTime() const;
 %Docstring
 Returns the total time it took to finish the job (in milliseconds).
@@ -169,12 +192,37 @@ Rendering labels is not yet done. If the fully rendered layer including labels i
 .. versionadded:: 3.0
 %End
 
+
+    void layerRenderingStarted( const QString &layerId );
+%Docstring
+Emitted just before rendering starts for a particular layer.
+
+.. note::
+
+   the :py:class:`QgsMapRendererParallelJob` subclass does not emit this signal.
+
+.. versionadded:: 3.24
+%End
+
+    void layerRendered( const QString &layerId );
+%Docstring
+Emitted when a layer has completed rendering.
+
+.. note::
+
+   the :py:class:`QgsMapRendererParallelJob` subclass does not emit this signal.
+
+.. versionadded:: 3.24
+%End
+
     void finished();
 %Docstring
 emitted when asynchronous rendering is finished (or canceled).
 %End
 
   protected:
+
+
 
 
 

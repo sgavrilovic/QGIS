@@ -18,6 +18,7 @@
 #include "qgsspatialiteconnpool.h"
 #include "qgsspatialiteprovider.h"
 #include "qgssqliteexpressioncompiler.h"
+#include "qgsspatialiteexpressioncompiler.h"
 
 #include "qgsgeometry.h"
 #include "qgslogger.h"
@@ -142,7 +143,7 @@ QgsSpatiaLiteFeatureIterator::QgsSpatiaLiteFeatureIterator( QgsSpatiaLiteFeature
       mFetchGeometry = true;
     }
 
-    QgsSQLiteExpressionCompiler compiler = QgsSQLiteExpressionCompiler( source->mFields, request.flags() & QgsFeatureRequest::IgnoreStaticNodesDuringExpressionCompilation );
+    QgsSpatialiteExpressionCompiler compiler = QgsSpatialiteExpressionCompiler( source->mFields, request.flags() & QgsFeatureRequest::IgnoreStaticNodesDuringExpressionCompilation );
     QgsSqlExpressionCompiler::Result result = compiler.compile( request.filterExpression() );
     if ( result == QgsSqlExpressionCompiler::Complete || result == QgsSqlExpressionCompiler::Partial )
     {
@@ -455,7 +456,7 @@ QString QgsSpatiaLiteFeatureIterator::whereClauseRect()
       mbrFilter += QStringLiteral( "ymax >= %1" ).arg( qgsDoubleToString( mFilterRect.yMinimum() ) );
       QString idxName = QStringLiteral( "idx_%1_%2" ).arg( mSource->mIndexTable, mSource->mIndexGeometry );
       whereClause += QStringLiteral( "%1 IN (SELECT pkid FROM %2 WHERE %3)" )
-                     .arg( QStringLiteral( "ROWID" ),
+                     .arg( mSource->mViewBased ? quotedPrimaryKey() : QStringLiteral( "ROWID" ),
                            QgsSqliteUtils::quotedIdentifier( idxName ),
                            mbrFilter );
     }
@@ -464,7 +465,7 @@ QString QgsSpatiaLiteFeatureIterator::whereClauseRect()
       // using the MbrCache spatial index
       QString idxName = QStringLiteral( "cache_%1_%2" ).arg( mSource->mIndexTable, mSource->mIndexGeometry );
       whereClause += QStringLiteral( "%1 IN (SELECT rowid FROM %2 WHERE mbr = FilterMbrIntersects(%3))" )
-                     .arg( QStringLiteral( "ROWID" ),
+                     .arg( mSource->mViewBased ? quotedPrimaryKey() : QStringLiteral( "ROWID" ),
                            QgsSqliteUtils::quotedIdentifier( idxName ),
                            mbr( mFilterRect ) );
     }

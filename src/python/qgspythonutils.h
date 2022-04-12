@@ -61,8 +61,11 @@ class PYTHON_EXPORT QgsPythonUtils
      * NULLPTR if no interface is available.
      *
      * If \a installErrorHook is true then the custom QGIS GUI error hook will be used.
+     *
+     * Since QGIS 3.24, the \a faultHandlerLogPath argument can be used to specify a file path
+     * for Python's faulthandler to dump tracebacks in if Python code causes QGIS to crash.
      */
-    virtual void initPython( QgisInterface *iface, bool installErrorHook ) = 0;
+    virtual void initPython( QgisInterface *iface, bool installErrorHook, const QString &faultHandlerLogPath = QString() ) = 0;
 
 #ifdef HAVE_SERVER_PYTHON_PLUGINS
 
@@ -182,7 +185,8 @@ class PYTHON_EXPORT QgsPythonUtils
     /**
      * Returns TRUE if a plugin implements a Processing provider.
      *
-     * This is determined by checking the plugin metadata for the "hasProcessingProvider=yes" line.
+     * This is determined by checking the plugin metadata for the "hasProcessingProvider=yes"
+     * or "hasProcessingProvider=true" line.
      *
      * \see startProcessingPlugin()
      * \since QGIS 3.8

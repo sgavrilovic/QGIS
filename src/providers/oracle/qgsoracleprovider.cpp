@@ -45,7 +45,6 @@
 
 #include <QSqlRecord>
 #include <QSqlField>
-#include <QMessageBox>
 #include <QUuid>
 
 #include "ocispatial/wkbptr.h"
@@ -217,6 +216,21 @@ QgsOracleProvider::~QgsOracleProvider()
 QString QgsOracleProvider::getWorkspace() const
 {
   return mUri.param( "dbworkspace" );
+}
+
+Qgis::VectorLayerTypeFlags QgsOracleProvider::vectorLayerTypeFlags() const
+{
+  Qgis::VectorLayerTypeFlags flags;
+  if ( mValid && mIsQuery )
+  {
+    flags.setFlag( Qgis::VectorLayerTypeFlag::SqlQuery );
+  }
+  return flags;
+}
+
+void QgsOracleProvider::handlePostCloneOperations( QgsVectorDataProvider *source )
+{
+  mShared = qobject_cast<QgsOracleProvider *>( source )->mShared;
 }
 
 void QgsOracleProvider::setWorkspace( const QString &workspace )
@@ -745,6 +759,9 @@ bool QgsOracleProvider::hasSufficientPermsAndCapabilities()
 
   mEnabledCapabilities = QgsVectorDataProvider::SelectAtId | QgsVectorDataProvider::TransactionSupport;
 
+  // supports circular geometries
+  mEnabledCapabilities |= QgsVectorDataProvider::CircularGeometries;
+
   QgsOracleConn *conn = connectionRO();
   QSqlQuery qry( *conn );
   if ( !mIsQuery )
@@ -978,7 +995,7 @@ bool QgsOracleProvider::uniqueData( QString query, QString colName )
   // This is tricky: in case of SQL query layers we have a generated uid in the form "qgis_generated_uid_%1_" which cannot be quoted as identifier.
 
   QString sql = QString( "SELECT (SELECT count(distinct %1) FROM %2)-(SELECT count(%1) FROM %2) FROM dual" )
-                .arg( colName.startsWith( QStringLiteral( "qgis_generated_uid_" ) ) ? colName : quotedIdentifier( colName ), mQuery );
+                .arg( colName.startsWith( QLatin1String( "qgis_generated_uid_" ) ) ? colName : quotedIdentifier( colName ), mQuery );
 
   if ( !exec( qry, sql, QVariantList() ) || !qry.next() )
   {
@@ -1969,8 +1986,8 @@ void QgsOracleProvider::appendGeomParam( const QgsGeometry &geom, QSqlQuery &qry
             // Oracle polygons must have their exterior ring in counterclockwise
             // order, and the interior ring(s) in clockwise order.
             const bool reverseRing =
-              iRing == 0 ? poly->exteriorRing()->orientation() == QgsCurve::Orientation::Clockwise :
-              poly->interiorRing( iRing - 1 )->orientation() == QgsCurve::Orientation::CounterClockwise;
+              iRing == 0 ? poly->exteriorRing()->orientation() == Qgis::AngularDirection::Clockwise :
+              poly->interiorRing( iRing - 1 )->orientation() == Qgis::AngularDirection::CounterClockwise;
 
             const int n = *ptr.iPtr++;
             if ( reverseRing )
@@ -2061,7 +2078,6 @@ void QgsOracleProvider::appendGeomParam( const QgsGeometry &geom, QSqlQuery &qry
           QgsWkbTypes::Type lineType = curveType;
           if ( curveType == QgsWkbTypes::CompoundCurve || curveType == QgsWkbTypes::CompoundCurveZ )
           {
-            g.gtype = SDO_GTYPE( dim, GtMultiLine );
             nLines = *ptr.iPtr++;
 
             // Oracle don't store compound curve with only one line
@@ -2144,8 +2160,8 @@ void QgsOracleProvider::appendGeomParam( const QgsGeometry &geom, QSqlQuery &qry
             // Oracle polygons must have their exterior ring in counterclockwise
             // order, and the interior ring(s) in clockwise order.
             const bool reverseRing =
-              iRing == 0 ? ring->orientation() == QgsCurve::Orientation::Clockwise :
-              ring->orientation() == QgsCurve::Orientation::CounterClockwise;
+              iRing == 0 ? ring->orientation() == Qgis::AngularDirection::Clockwise :
+              ring->orientation() == Qgis::AngularDirection::CounterClockwise;
             std::unique_ptr<QgsCurve> reversedRing( reverseRing ? ring->reversed() : nullptr );
             const QgsCurve *correctedRing = reversedRing ? reversedRing.get() : ring;
             const QgsCompoundCurve *compound = dynamic_cast<const QgsCompoundCurve *>( correctedRing );
@@ -2186,7 +2202,7 @@ void QgsOracleProvider::appendGeomParam( const QgsGeometry &geom, QSqlQuery &qry
                 }
 
                 QgsPoint p;
-                QgsVertexId::VertexType ignored;
+                Qgis::VertexType ignored;
                 lineCurve->pointAt( i, p, ignored );
                 g.ordinates << p.x();
                 g.ordinates << p.y();
@@ -2812,6 +2828,7 @@ bool QgsOracleProvider::convertField( QgsField &field )
   return true;
 }
 
+
 Qgis::VectorExportResult QgsOracleProvider::createEmptyLayer(
   const QString &uri,
   const QgsFields &fields,
@@ -3353,6 +3370,63 @@ QVariantList QgsOracleSharedData::lookupKey( QgsFeatureId featureId )
   return QVariantList();
 }
 
+bool QgsOracleProviderMetadata::styleExists( const QString &uri, const QString &styleId, QString &errorCause )
+{
+  errorCause.clear();
+
+  QgsDataSourceUri dsUri( uri );
+
+  QgsOracleConn *conn = QgsOracleConn::connectDb( dsUri, false );
+  if ( !conn )
+  {
+    errorCause = QObject::tr( "Could not connect to database" );
+    return false;
+  }
+
+  QSqlQuery qry = QSqlQuery( *conn );
+  if ( !qry.exec( "SELECT COUNT(*) FROM user_tables WHERE table_name='LAYER_STYLES'" ) || !qry.next() )
+  {
+    errorCause = QObject::tr( "Unable to check layer style existence [%1]" ).arg( qry.lastError().text() );
+    conn->disconnect();
+    return false;
+  }
+  else if ( qry.value( 0 ).toInt() == 0 )
+  {
+    // layer styles table does not exist
+    return false;
+  }
+
+  if ( !qry.prepare( QStringLiteral( "SELECT id,stylename FROM layer_styles"
+                                     " WHERE f_table_catalog=?"
+                                     " AND f_table_schema=?"
+                                     " AND f_table_name=?"
+                                     " AND f_geometry_column=?"
+                                     " AND styleName=?" ) ) ||
+       !(
+         qry.addBindValue( dsUri.database() ),
+         qry.addBindValue( dsUri.schema() ),
+         qry.addBindValue( dsUri.table() ),
+         qry.addBindValue( dsUri.geometryColumn() ),
+         qry.addBindValue( styleId.isEmpty() ? dsUri.table() : styleId ),
+         qry.exec()
+       ) )
+  {
+    errorCause = QObject::tr( "Unable to check style existence [%1]" ).arg( qry.lastError().text() );
+    conn->disconnect();
+    return false;
+  }
+  else if ( qry.next() )
+  {
+    conn->disconnect();
+    return true;
+  }
+  else
+  {
+    conn->disconnect();
+    return false;
+  }
+}
+
 bool QgsOracleProviderMetadata::saveStyle( const QString &uri,
     const QString &qmlStyle,
     const QString &sldStyle,
@@ -3428,16 +3502,6 @@ bool QgsOracleProviderMetadata::saveStyle( const QString &uri,
   }
   else if ( qry.next() )
   {
-    if ( QMessageBox::question( nullptr, QObject::tr( "Save style in database" ),
-                                QObject::tr( "A style named \"%1\" already exists in the database for this layer. Do you want to overwrite it?" )
-                                .arg( styleName.isEmpty() ? dsUri.table() : styleName ),
-                                QMessageBox::Yes | QMessageBox::No ) == QMessageBox::No )
-    {
-      errCause = QObject::tr( "Operation aborted. No changes were made in the database" );
-      conn->disconnect();
-      return false;
-    }
-
     id = qry.value( 0 ).toInt();
 
     sql = QString( "UPDATE layer_styles"
@@ -3664,7 +3728,7 @@ int QgsOracleProviderMetadata::listStyles( const QString &uri,
   return res;
 }
 
-QString QgsOracleProviderMetadata::getStyleById( const QString &uri, QString styleId, QString &errCause )
+QString QgsOracleProviderMetadata::getStyleById( const QString &uri, const QString &styleId, QString &errCause )
 {
   QString style;
   QgsDataSourceUri dsUri( uri );
