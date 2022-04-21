@@ -24,6 +24,7 @@
 #include "qgsplotcanvas.h"
 #include "qgsmaplayer.h"
 #include "qgscoordinatereferencesystem.h"
+#include "qgsprofilepoint.h"
 
 class QgsElevationProfilePlotItem;
 class QgsElevationProfileCrossHairsItem;
@@ -31,6 +32,7 @@ class QgsAbstractProfileResults;
 class QgsProfilePlotRenderer;
 class QgsCurve;
 class Qgs2DPlot;
+class QgsProfileSnapContext;
 
 /**
  * \ingroup gui
@@ -60,6 +62,7 @@ class GUI_EXPORT QgsElevationProfileCanvas : public QgsPlotCanvas
     void panContentsBy( double dx, double dy ) override;
     void centerPlotOn( double x, double y ) override;
     void scalePlot( double factor ) override;
+    QgsPointXY snapToPlot( QPoint point ) override;
 
     /**
      * Scales the plot axis by the given factors.
@@ -171,6 +174,11 @@ class GUI_EXPORT QgsElevationProfileCanvas : public QgsPlotCanvas
      */
     void clear();
 
+    /**
+     * Sets whether snapping of cursor points is enabled.
+     */
+    void setSnappingEnabled( bool enabled );
+
   private slots:
 
     void generationFinished();
@@ -180,7 +188,14 @@ class GUI_EXPORT QgsElevationProfileCanvas : public QgsPlotCanvas
     /**
      * Converts a canvas point to the equivalent plot point.
      */
-    QgsPointXY canvasPointToPlotPoint( const QPointF &point ) const;
+    QgsProfilePoint canvasPointToPlotPoint( const QPointF &point ) const;
+
+    /**
+     * Converts a plot point to the equivalent canvas point.
+     */
+    QgsPointXY plotPointToCanvasPoint( const QgsProfilePoint &point ) const;
+
+    QgsProfileSnapContext snapContext() const;
 
     QgsCoordinateReferenceSystem mCrs;
     QgsProject *mProject = nullptr;
@@ -195,6 +210,8 @@ class GUI_EXPORT QgsElevationProfileCanvas : public QgsPlotCanvas
     std::unique_ptr< QgsCurve > mProfileCurve;
 
     bool mFirstDrawOccurred = false;
+
+    bool mSnappingEnabled = true;
 };
 
 #endif // QGSELEVATIONPROFILECANVAS_H

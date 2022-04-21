@@ -32,6 +32,8 @@
 #include "qgslinesymbol.h"
 #include "qgsfillsymbol.h"
 #include "qgsmarkersymbol.h"
+#include "qgsprofilepoint.h"
+#include "qgsprofilesnapping.h"
 #include <QPolygonF>
 
 //
@@ -69,6 +71,163 @@ QVector<QgsGeometry> QgsVectorLayerProfileResults::asGeometries() const
       res.append( feature.geometry );
     }
   }
+  return res;
+}
+
+QgsProfileSnapResult QgsVectorLayerProfileResults::snapPoint( const QgsProfilePoint &point, const QgsProfileSnapContext &context )
+{
+  // TODO -- add spatial index if performance is an issue
+  QgsProfileSnapResult res;
+  double bestSnapDistance = std::numeric_limits< double >::max();
+
+  const QgsPoint targetPoint( point.distance(), point.elevation() );
+
+  for ( auto it = features.constBegin(); it != features.constEnd(); ++it )
+  {
+    for ( const Feature &feature : it.value() )
+    {
+      const QgsRectangle featureBounds = feature.crossSectionGeometry.boundingBox();
+      if ( ( featureBounds.xMinimum() - context.maximumDistanceDelta <= point.distance() ) && ( featureBounds.xMaximum() + context.maximumDistanceDelta >= point.distance() ) )
+      {
+        switch ( feature.crossSectionGeometry.type() )
+        {
+          case QgsWkbTypes::PointGeometry:
+          {
+            for ( auto partIt = feature.crossSectionGeometry.const_parts_begin(); partIt != feature.crossSectionGeometry.const_parts_end(); ++partIt )
+            {
+              if ( const QgsPoint *candidatePoint = qgsgeometry_cast< const QgsPoint * >( *partIt ) )
+              {
+                const double snapDistanceDelta = std::fabs( point.distance() - candidatePoint->x() );
+                if ( snapDistanceDelta > context.maximumDistanceDelta )
+                  continue;
+
+                const double snapHeightDelta = std::fabs( point.elevation() - candidatePoint->y() );
+                if ( snapHeightDelta > context.maximumElevationDelta )
+                  continue;
+
+                const double snapDistance = candidatePoint->distance( targetPoint );
+                if ( snapDistance < bestSnapDistance )
+                {
+                  bestSnapDistance = snapDistance;
+                  res.snappedPoint = QgsProfilePoint( candidatePoint->x(), candidatePoint->y() );
+                }
+              }
+            }
+            break;
+          }
+
+          case QgsWkbTypes::LineGeometry:
+          {
+            for ( auto partIt = feature.crossSectionGeometry.const_parts_begin(); partIt != feature.crossSectionGeometry.const_parts_end(); ++partIt )
+            {
+              if ( const QgsCurve *line = qgsgeometry_cast< const QgsCurve * >( *partIt ) )
+              {
+                // might be a vertical line
+                if ( const QgsLineString *lineString = qgsgeometry_cast< const QgsLineString * >( line ) )
+                {
+                  if ( lineString->numPoints() == 2 && qgsDoubleNear( lineString->pointN( 0 ).x(), lineString->pointN( 1 ).x() ) )
+                  {
+                    const double snapDistanceDelta = std::fabs( point.distance() - lineString->pointN( 0 ).x() );
+                    if ( snapDistanceDelta > context.maximumDistanceDelta )
+                      continue;
+
+                    const double snapHeightDelta = std::fabs( point.elevation() - lineString->pointN( 0 ).y() );
+                    if ( snapHeightDelta <= context.maximumElevationDelta )
+                    {
+                      const double snapDistanceP1 = lineString->pointN( 0 ).distance( targetPoint );
+                      if ( snapDistanceP1 < bestSnapDistance )
+                      {
+                        bestSnapDistance = snapDistanceP1;
+                        res.snappedPoint = QgsProfilePoint( lineString->pointN( 0 ).x(), lineString->pointN( 0 ).y() );
+                      }
+                    }
+
+                    const double snapHeightDelta2 = std::fabs( point.elevation() - lineString->pointN( 1 ).y() );
+                    if ( snapHeightDelta2 <= context.maximumElevationDelta )
+                    {
+                      const double snapDistanceP2 = lineString->pointN( 1 ).distance( targetPoint );
+                      if ( snapDistanceP2 < bestSnapDistance )
+                      {
+                        bestSnapDistance = snapDistanceP2;
+                        res.snappedPoint = QgsProfilePoint( lineString->pointN( 1 ).x(), lineString->pointN( 1 ).y() );
+                      }
+                    }
+                    continue;
+                  }
+                }
+
+                const QgsRectangle partBounds = ( *partIt )->boundingBox();
+                if ( point.distance() < partBounds.xMinimum() - context.maximumDistanceDelta || point.distance() > partBounds.xMaximum() + context.maximumDistanceDelta )
+                  continue;
+
+                const double snappedDistance = point.distance() < partBounds.xMinimum() ? partBounds.xMinimum()
+                                               : point.distance() > partBounds.xMaximum() ? partBounds.xMaximum() : point.distance();
+
+                const QgsGeometry cutLine( new QgsLineString( QgsPoint( snappedDistance, minZ ), QgsPoint( snappedDistance, maxZ ) ) );
+                QgsGeos cutLineGeos( cutLine.constGet() );
+
+                const QgsGeometry points( cutLineGeos.intersection( line ) );
+
+                for ( auto vertexIt = points.vertices_begin(); vertexIt != points.vertices_end(); ++vertexIt )
+                {
+                  const double snapHeightDelta = std::fabs( point.elevation() - ( *vertexIt ).y() );
+                  if ( snapHeightDelta > context.maximumElevationDelta )
+                    continue;
+
+                  const double snapDistance = ( *vertexIt ).distance( targetPoint );
+                  if ( snapDistance < bestSnapDistance )
+                  {
+                    bestSnapDistance = snapDistance;
+                    res.snappedPoint = QgsProfilePoint( ( *vertexIt ).x(), ( *vertexIt ).y() );
+                  }
+                }
+              }
+            }
+            break;
+          }
+
+          case QgsWkbTypes::PolygonGeometry:
+          {
+            for ( auto partIt = feature.crossSectionGeometry.const_parts_begin(); partIt != feature.crossSectionGeometry.const_parts_end(); ++partIt )
+            {
+              if ( const QgsCurve *exterior = qgsgeometry_cast< const QgsPolygon * >( *partIt )->exteriorRing() )
+              {
+                const QgsRectangle partBounds = ( *partIt )->boundingBox();
+                if ( point.distance() < partBounds.xMinimum() - context.maximumDistanceDelta || point.distance() > partBounds.xMaximum() + context.maximumDistanceDelta )
+                  continue;
+
+                const double snappedDistance = point.distance() < partBounds.xMinimum() ? partBounds.xMinimum()
+                                               : point.distance() > partBounds.xMaximum() ? partBounds.xMaximum() : point.distance();
+
+                const QgsGeometry cutLine( new QgsLineString( QgsPoint( snappedDistance, minZ ), QgsPoint( snappedDistance, maxZ ) ) );
+                QgsGeos cutLineGeos( cutLine.constGet() );
+
+                const QgsGeometry points( cutLineGeos.intersection( exterior ) );
+                for ( auto vertexIt = points.vertices_begin(); vertexIt != points.vertices_end(); ++vertexIt )
+                {
+                  const double snapHeightDelta = std::fabs( point.elevation() - ( *vertexIt ).y() );
+                  if ( snapHeightDelta > context.maximumElevationDelta )
+                    continue;
+
+                  const double snapDistance = ( *vertexIt ).distance( targetPoint );
+                  if ( snapDistance < bestSnapDistance )
+                  {
+                    bestSnapDistance = snapDistance;
+                    res.snappedPoint = QgsProfilePoint( ( *vertexIt ).x(), ( *vertexIt ).y() );
+                  }
+                }
+              }
+            }
+            break;
+          }
+          case QgsWkbTypes::UnknownGeometry:
+          case QgsWkbTypes::NullGeometry:
+            break;
+        }
+      }
+    }
+  }
+
   return res;
 }
 
@@ -256,6 +415,9 @@ QgsVectorLayerProfileGenerator::QgsVectorLayerProfileGenerator( QgsVectorLayer *
   , mBinding( qgis::down_cast< QgsVectorLayerElevationProperties * >( layer->elevationProperties() )->binding() )
   , mExtrusionEnabled( qgis::down_cast< QgsVectorLayerElevationProperties * >( layer->elevationProperties() )->extrusionEnabled() )
   , mExtrusionHeight( qgis::down_cast< QgsVectorLayerElevationProperties * >( layer->elevationProperties() )->extrusionHeight() )
+  , mExpressionContext( request.expressionContext() )
+  , mFields( layer->fields() )
+  , mDataDefinedProperties( layer->elevationProperties()->dataDefinedProperties() )
   , mWkbType( layer->wkbType() )
   , mRespectLayerSymbology( qgis::down_cast< QgsVectorLayerElevationProperties * >( layer->elevationProperties() )->respectLayerSymbology() )
   , mProfileLineSymbol( qgis::down_cast< QgsVectorLayerElevationProperties * >( layer->elevationProperties() )->profileLineSymbol()->clone() )
@@ -308,6 +470,8 @@ bool QgsVectorLayerProfileGenerator::generateProfile()
   mProfileCurveEngine.reset( new QgsGeos( mProfileCurve.get() ) );
   mProfileCurveEngine->prepareGeometry();
 
+  mDataDefinedProperties.prepare( mExpressionContext );
+
   if ( mFeedback->isCanceled() )
     return false;
 
@@ -352,11 +516,14 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPoints()
   QgsFeatureRequest request;
   request.setDestinationCrs( mTargetCrs, mTransformContext );
   request.setDistanceWithin( QgsGeometry( mProfileCurve->clone() ), mTolerance );
+  request.setSubsetOfAttributes( mDataDefinedProperties.referencedFields( mExpressionContext ), mFields );
   request.setFeedback( mFeedback.get() );
 
   auto processPoint = [this]( const QgsFeature & feature, const QgsPoint * point )
   {
-    const double height = featureZToHeight( point->x(), point->y(), point->z() );
+    const double offset = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ZOffset, mExpressionContext, mOffset );
+
+    const double height = featureZToHeight( point->x(), point->y(), point->z(), offset );
     mResults->rawPoints.append( QgsPoint( point->x(), point->y(), height ) );
     mResults->minZ = std::min( mResults->minZ, height );
     mResults->maxZ = std::max( mResults->maxZ, height );
@@ -369,13 +536,14 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPoints()
     resultFeature.featureId = feature.id();
     if ( mExtrusionEnabled )
     {
+      const double extrusion = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ExtrusionHeight, mExpressionContext, mExtrusionHeight );
 
       resultFeature.geometry = QgsGeometry( new QgsLineString( QgsPoint( point->x(), point->y(), height ),
-                                            QgsPoint( point->x(), point->y(), height + mExtrusionHeight ) ) );
+                                            QgsPoint( point->x(), point->y(), height + extrusion ) ) );
       resultFeature.crossSectionGeometry = QgsGeometry( new QgsLineString( QgsPoint( distance, height ),
-                                           QgsPoint( distance, height + mExtrusionHeight ) ) );
-      mResults->minZ = std::min( mResults->minZ, height + mExtrusionHeight );
-      mResults->maxZ = std::max( mResults->maxZ, height + mExtrusionHeight );
+                                           QgsPoint( distance, height + extrusion ) ) );
+      mResults->minZ = std::min( mResults->minZ, height + extrusion );
+      mResults->maxZ = std::max( mResults->maxZ, height + extrusion );
     }
     else
     {
@@ -391,6 +559,8 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPoints()
   {
     if ( mFeedback->isCanceled() )
       return false;
+
+    mExpressionContext.setFeature( feature );
 
     const QgsGeometry g = feature.geometry();
     if ( g.isMultipart() )
@@ -414,7 +584,7 @@ bool QgsVectorLayerProfileGenerator::generateProfileForLines()
   QgsFeatureRequest request;
   request.setDestinationCrs( mTargetCrs, mTransformContext );
   request.setFilterRect( mProfileCurve->boundingBox() );
-  request.setNoAttributes();
+  request.setSubsetOfAttributes( mDataDefinedProperties.referencedFields( mExpressionContext ), mFields );
   request.setFeedback( mFeedback.get() );
 
   auto processCurve = [this]( const QgsFeature & feature, const QgsCurve * curve )
@@ -444,7 +614,9 @@ bool QgsVectorLayerProfileGenerator::generateProfileForLines()
         const double distance = curveGeos.lineLocatePoint( *intersectionPoint, &error );
         std::unique_ptr< QgsPoint > interpolatedPoint( curve->interpolatePoint( distance ) );
 
-        const double height = featureZToHeight( interpolatedPoint->x(), interpolatedPoint->y(), interpolatedPoint->z() );
+        const double offset = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ZOffset, mExpressionContext, mOffset );
+
+        const double height = featureZToHeight( interpolatedPoint->x(), interpolatedPoint->y(), interpolatedPoint->z(), offset );
         mResults->rawPoints.append( QgsPoint( interpolatedPoint->x(), interpolatedPoint->y(), height ) );
         mResults->minZ = std::min( mResults->minZ, height );
         mResults->maxZ = std::max( mResults->maxZ, height );
@@ -456,12 +628,14 @@ bool QgsVectorLayerProfileGenerator::generateProfileForLines()
         resultFeature.featureId = feature.id();
         if ( mExtrusionEnabled )
         {
+          const double extrusion = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ExtrusionHeight, mExpressionContext, mExtrusionHeight );
+
           resultFeature.geometry = QgsGeometry( new QgsLineString( QgsPoint( interpolatedPoint->x(), interpolatedPoint->y(), height ),
-                                                QgsPoint( interpolatedPoint->x(), interpolatedPoint->y(), height + mExtrusionHeight ) ) );
+                                                QgsPoint( interpolatedPoint->x(), interpolatedPoint->y(), height + extrusion ) ) );
           resultFeature.crossSectionGeometry = QgsGeometry( new QgsLineString( QgsPoint( distanceAlongProfileCurve, height ),
-                                               QgsPoint( distanceAlongProfileCurve, height + mExtrusionHeight ) ) );
-          mResults->minZ = std::min( mResults->minZ, height + mExtrusionHeight );
-          mResults->maxZ = std::max( mResults->maxZ, height + mExtrusionHeight );
+                                               QgsPoint( distanceAlongProfileCurve, height + extrusion ) ) );
+          mResults->minZ = std::min( mResults->minZ, height + extrusion );
+          mResults->maxZ = std::max( mResults->maxZ, height + extrusion );
         }
         else
         {
@@ -482,6 +656,8 @@ bool QgsVectorLayerProfileGenerator::generateProfileForLines()
 
     if ( !mProfileCurveEngine->intersects( feature.geometry().constGet() ) )
       continue;
+
+    mExpressionContext.setFeature( feature );
 
     const QgsGeometry g = feature.geometry();
     if ( g.isMultipart() )
@@ -508,7 +684,7 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
   QgsFeatureRequest request;
   request.setDestinationCrs( mTargetCrs, mTransformContext );
   request.setFilterRect( mProfileCurve->boundingBox() );
-  request.setNoAttributes();
+  request.setSubsetOfAttributes( mDataDefinedProperties.referencedFields( mExpressionContext ), mFields );
   request.setFeedback( mFeedback.get() );
 
   auto interpolatePointOnTriangle = []( const QgsPolygon * triangle, double x, double y ) -> QgsPoint
@@ -550,12 +726,14 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
 
           if ( mExtrusionEnabled )
           {
+            const double extrusion = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ExtrusionHeight, mExpressionContext, mExtrusionHeight );
+
             transformedParts.append( QgsGeometry( new QgsLineString( interpolatedPoint,
-                                                  QgsPoint( interpolatedPoint.x(), interpolatedPoint.y(), interpolatedPoint.z() + mExtrusionHeight ) ) ) );
+                                                  QgsPoint( interpolatedPoint.x(), interpolatedPoint.y(), interpolatedPoint.z() + extrusion ) ) ) );
             crossSectionParts.append( QgsGeometry( new QgsLineString( QgsPoint( distance, interpolatedPoint.z() ),
-                                                   QgsPoint( distance, interpolatedPoint.z() + mExtrusionHeight ) ) ) );
-            mResults->minZ = std::min( mResults->minZ, interpolatedPoint.z() + mExtrusionHeight );
-            mResults->maxZ = std::max( mResults->maxZ, interpolatedPoint.z() + mExtrusionHeight );
+                                                   QgsPoint( distance, interpolatedPoint.z() + extrusion ) ) ) );
+            mResults->minZ = std::min( mResults->minZ, interpolatedPoint.z() + extrusion );
+            mResults->maxZ = std::max( mResults->maxZ, interpolatedPoint.z() + extrusion );
           }
           else
           {
@@ -594,10 +772,13 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
 
           QVector< double > extrudedZ;
           double *extZOut = nullptr;
+          double extrusion = 0;
           if ( mExtrusionEnabled )
           {
             extrudedZ.resize( numPoints );
             extZOut = extrudedZ.data();
+
+            extrusion = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ExtrusionHeight, mExpressionContext, mExtrusionHeight );
           }
 
           QString lastError;
@@ -611,15 +792,15 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
             *outY++ = y;
             *outZ++ = interpolatedPoint.z();
             if ( extZOut )
-              *extZOut++ = interpolatedPoint.z() + mExtrusionHeight;
+              *extZOut++ = interpolatedPoint.z() + extrusion;
 
             mResults->rawPoints.append( interpolatedPoint );
             mResults->minZ = std::min( mResults->minZ, interpolatedPoint.z() );
             mResults->maxZ = std::max( mResults->maxZ, interpolatedPoint.z() );
             if ( mExtrusionEnabled )
             {
-              mResults->minZ = std::min( mResults->minZ, interpolatedPoint.z() + mExtrusionHeight );
-              mResults->maxZ = std::max( mResults->maxZ, interpolatedPoint.z() + mExtrusionHeight );
+              mResults->minZ = std::min( mResults->minZ, interpolatedPoint.z() + extrusion );
+              mResults->maxZ = std::max( mResults->maxZ, interpolatedPoint.z() + extrusion );
             }
 
             const double distance = mProfileCurveEngine->lineLocatePoint( interpolatedPoint, &lastError );
@@ -660,7 +841,7 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
     }
   };
 
-  auto processPolygon = [this, &processTriangleLineIntersect]( const QgsCurvePolygon * polygon, QVector< QgsGeometry > &transformedParts, QVector< QgsGeometry > &crossSectionParts )
+  auto processPolygon = [this, &processTriangleLineIntersect]( const QgsCurvePolygon * polygon, QVector< QgsGeometry > &transformedParts, QVector< QgsGeometry > &crossSectionParts, double offset )
   {
     std::unique_ptr< QgsPolygon > clampedPolygon;
     if ( const QgsPolygon *p = qgsgeometry_cast< const QgsPolygon * >( polygon ) )
@@ -669,9 +850,9 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
     }
     else
     {
-      clampedPolygon.reset( qgsgeometry_cast< QgsPolygon * >( p->segmentize() ) );
+      clampedPolygon.reset( qgsgeometry_cast< QgsPolygon * >( polygon->segmentize() ) );
     }
-    clampAltitudes( clampedPolygon.get() );
+    clampAltitudes( clampedPolygon.get(), offset );
 
     if ( mFeedback->isCanceled() )
       return;
@@ -716,6 +897,10 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
     if ( !mProfileCurveEngine->intersects( feature.geometry().constGet() ) )
       continue;
 
+    mExpressionContext.setFeature( feature );
+
+    const double offset = mDataDefinedProperties.valueAsDouble( QgsMapLayerElevationProperties::ZOffset, mExpressionContext, mOffset );
+
     const QgsGeometry g = feature.geometry();
     QVector< QgsGeometry > transformedParts;
     QVector< QgsGeometry > crossSectionParts;
@@ -729,12 +914,12 @@ bool QgsVectorLayerProfileGenerator::generateProfileForPolygons()
         if ( !mProfileCurveEngine->intersects( *it ) )
           continue;
 
-        processPolygon( qgsgeometry_cast< const QgsCurvePolygon * >( *it ), transformedParts, crossSectionParts );
+        processPolygon( qgsgeometry_cast< const QgsCurvePolygon * >( *it ), transformedParts, crossSectionParts, offset );
       }
     }
     else
     {
-      processPolygon( qgsgeometry_cast< const QgsCurvePolygon * >( g.constGet() ), transformedParts, crossSectionParts );
+      processPolygon( qgsgeometry_cast< const QgsCurvePolygon * >( g.constGet() ), transformedParts, crossSectionParts, offset );
     }
 
     if ( mFeedback->isCanceled() )
@@ -774,7 +959,7 @@ double QgsVectorLayerProfileGenerator::terrainHeight( double x, double y )
   return mTerrainProvider->heightAt( x, y );
 }
 
-double QgsVectorLayerProfileGenerator::featureZToHeight( double x, double y, double z )
+double QgsVectorLayerProfileGenerator::featureZToHeight( double x, double y, double z, double offset )
 {
   switch ( mClamping )
   {
@@ -808,10 +993,10 @@ double QgsVectorLayerProfileGenerator::featureZToHeight( double x, double y, dou
     }
   }
 
-  return z * mScale + mOffset;
+  return ( std::isnan( z ) ? 0 : z ) * mScale + offset;
 }
 
-void QgsVectorLayerProfileGenerator::clampAltitudes( QgsLineString *lineString, const QgsPoint &centroid )
+void QgsVectorLayerProfileGenerator::clampAltitudes( QgsLineString *lineString, const QgsPoint &centroid, double offset )
 {
   for ( int i = 0; i < lineString->nCoordinates(); ++i )
   {
@@ -858,12 +1043,12 @@ void QgsVectorLayerProfileGenerator::clampAltitudes( QgsLineString *lineString, 
         break;
     }
 
-    const double z = ( terrainZ + geomZ ) * mScale + mOffset;
+    const double z = ( terrainZ + ( std::isnan( geomZ ) ?  0 : geomZ ) ) * mScale + offset;
     lineString->setZAt( i, z );
   }
 }
 
-bool QgsVectorLayerProfileGenerator::clampAltitudes( QgsPolygon *polygon )
+bool QgsVectorLayerProfileGenerator::clampAltitudes( QgsPolygon *polygon, double offset )
 {
   if ( !polygon->is3D() )
     polygon->addZValue( 0 );
@@ -884,7 +1069,7 @@ bool QgsVectorLayerProfileGenerator::clampAltitudes( QgsPolygon *polygon )
   if ( !lineString )
     return false;
 
-  clampAltitudes( lineString, centroid );
+  clampAltitudes( lineString, centroid, offset );
 
   for ( int i = 0; i < polygon->numInteriorRings(); ++i )
   {
@@ -896,7 +1081,7 @@ bool QgsVectorLayerProfileGenerator::clampAltitudes( QgsPolygon *polygon )
     if ( !lineString )
       return false;
 
-    clampAltitudes( lineString, centroid );
+    clampAltitudes( lineString, centroid, offset );
   }
   return true;
 }
